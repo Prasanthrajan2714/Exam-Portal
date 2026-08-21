@@ -32,6 +32,33 @@ export function isWindowOpen(exam: ExamTiming, now: Date = new Date()): boolean 
   return examPhase(exam, now) === "OPEN";
 }
 
+export type AdminExamStatus = {
+  label: "Draft" | "Active" | "Scheduled" | "Closed";
+  tone: "neutral" | "success" | "info";
+};
+
+/**
+ * How an exam reads to an admin: draft until its paper is in and it is
+ * published, and from then on the window decides. Shared by the exams list and
+ * the dashboard, which had drifted into calling the same state different names.
+ */
+export function adminExamStatus(
+  exam: ExamTiming & { status: "DRAFT" | "PUBLISHED"; questionCount: number },
+  now: Date = new Date(),
+): AdminExamStatus {
+  if (exam.status !== "PUBLISHED" || exam.questionCount === 0) {
+    return { label: "Draft", tone: "neutral" };
+  }
+  switch (examPhase(exam, now)) {
+    case "OPEN":
+      return { label: "Active", tone: "success" };
+    case "UPCOMING":
+      return { label: "Scheduled", tone: "info" };
+    default:
+      return { label: "Closed", tone: "neutral" };
+  }
+}
+
 /**
  * When a fresh attempt must end: the student's full duration, but never past the
  * exam window. Starting a 30-minute test 10 minutes before the window closes

@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/primitives";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { examPhase } from "@/lib/exam-window";
+import { adminExamStatus } from "@/lib/exam-window";
 import { formatDate, formatTime } from "@/lib/utils";
 
 export const metadata = { title: "Dashboard · Admin" };
@@ -143,7 +143,10 @@ export default async function AdminDashboard() {
             </thead>
             <tbody>
               {upcoming.map((exam) => {
-                const phase = examPhase(exam);
+                const status = adminExamStatus({
+                  ...exam,
+                  questionCount: exam._count.questions,
+                });
                 return (
                   <tr key={exam.id}>
                     <Td>
@@ -168,21 +171,7 @@ export default async function AdminDashboard() {
                     </Td>
                     <Td className="tabular-nums">{exam._count.attempts}</Td>
                     <Td>
-                      <Badge
-                        tone={
-                          phase === "OPEN"
-                            ? "success"
-                            : phase === "UPCOMING"
-                              ? "info"
-                              : "neutral"
-                        }
-                      >
-                        {phase === "OPEN"
-                          ? "Live now"
-                          : phase === "UPCOMING"
-                            ? "Scheduled"
-                            : "Closed"}
-                      </Badge>
+                      <Badge tone={status.tone}>{status.label}</Badge>
                     </Td>
                   </tr>
                 );

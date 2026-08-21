@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/primitives";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { examPhase } from "@/lib/exam-window";
+import { adminExamStatus } from "@/lib/exam-window";
 import { formatDate, formatTime } from "@/lib/utils";
 
 export const metadata = { title: "Exams · Admin" };
@@ -69,13 +69,15 @@ export default async function ExamsPage() {
             </thead>
             <tbody>
               {exams.map((exam) => {
-                const phase = examPhase(exam);
                 const expected = exam.examSubjects.reduce(
                   (sum, s) => sum + s.questionCount,
                   0,
                 );
                 const published = exam.status === "PUBLISHED";
-                const hasPaper = exam._count.questions > 0;
+                const status = adminExamStatus({
+                  ...exam,
+                  questionCount: exam._count.questions,
+                });
                 // A paper can still be uploaded only while the exam is a draft
                 // nobody has sat; after that the paper action is view-only.
                 const canTakePaper = !published && exam._count.attempts === 0;
@@ -121,17 +123,7 @@ export default async function ExamsPage() {
                       {exam._count.attempts}
                     </Td>
                     <Td>
-                      {/* Draft until the paper is in and the exam published;
-                          from then on the window decides what this reads. */}
-                      {!published || !hasPaper ? (
-                        <Badge tone="neutral">Draft</Badge>
-                      ) : phase === "OPEN" ? (
-                        <Badge tone="success">Active</Badge>
-                      ) : phase === "UPCOMING" ? (
-                        <Badge tone="info">Scheduled</Badge>
-                      ) : (
-                        <Badge tone="neutral">Closed</Badge>
-                      )}
+                      <Badge tone={status.tone}>{status.label}</Badge>
                     </Td>
                     <Td>
                       <div className="flex items-center justify-end gap-1">
