@@ -30,7 +30,8 @@ export function LoginForm() {
   return (
     <div className="w-full max-w-sm">
       <div className="mb-8 text-center">
-        <BrandMark size={72} eager className="mx-auto mb-4 shadow-sm" />
+        {/* No shadow: it would trace the image's square box, not the badge. */}
+        <BrandMark size={72} eager className="mx-auto mb-4" />
         <h1 className="text-2xl font-semibold tracking-tight">
           FirstBench Exam Portal
         </h1>

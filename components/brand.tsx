@@ -1,8 +1,9 @@
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
-// The logo is a square JPEG with a white field, so it always sits on a white
-// tile — on the dark theme the tile is what keeps the black wordmark readable.
+// A PNG with the white field cut away, so the badge sits straight on whatever
+// is behind it instead of on a white tile of its own. The JPEG it was made from
+// could not carry transparency, which is why the tile existed at all.
 export function BrandMark({
   className,
   size = 32,
@@ -14,15 +15,12 @@ export function BrandMark({
 }) {
   return (
     <Image
-      src="/logo.jpeg"
+      src="/logo.png"
       alt="FirstBench"
       width={size}
       height={size}
       loading={eager ? "eager" : "lazy"}
-      className={cn(
-        "shrink-0 rounded-lg bg-white object-contain ring-1 ring-border",
-        className,
-      )}
+      className={cn("shrink-0 object-contain", className)}
     />
   );
 }
