@@ -1,0 +1,290 @@
+import { Download, FileSpreadsheet, Filter, ListChecks } from "lucide-react";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/field";
+import {
+  Badge,
+  Card,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  PageHeader,
+  Stat,
+  Table,
+  Td,
+  Th,
+} from "@/components/ui/primitives";
+import { sweepExamAttempts } from "@/lib/attempts";
+import { requireAdmin } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { examPhase } from "@/lib/exam-window";
+import { formatDate } from "@/lib/utils";
+
+export const metadata = { title: "Reports · Admin" };
+// "Closed" depends on the current instant, so this page can never be cached.
+export const dynamic = "force-dynamic";
+
+export default async function ReportsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ batch?: string }>;
+}) {
+  await requireAdmin();
+  const { batch = "" } = await searchParams;
+
+  // The dropdown lists every class that has published exams, not just ones with
+  // closed exams — picking a class whose paper is still running should say so
+  // rather than make the class disappear from the filter.
+  const batches = await prisma.batch.findMany({
+    where: { exams: { some: { status: "PUBLISHED" } } },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+  });
+
+  const published = await prisma.exam.findMany({
+    where: { status: "PUBLISHED", ...(batch ? { batchId: batch } : {}) },
+    orderBy: [{ examDate: "desc" }, { startsAt: "desc" }],
+    include: {
+      batch: {
+        select: {
+          id: true,
+          name: true,
+          _count: { select: { students: true } },
+        },
+      },
+    },
+  });
+
+  // Reporting is for finished exams only — same definition of "closed" the
+  // student dashboard and the exam list use.
+  const closed = published.filter((exam) => examPhase(exam) === "CLOSED");
+  const examIds = closed.map((exam) => exam.id);
+
+  // Marks must be settled before they are reported: an attempt abandoned mid-way
+  // stays IN_PROGRESS with a null score until it is swept and graded.
+  for (const id of examIds) await sweepExamAttempts(id);
+
+  const [attemptStats, questions] = await Promise.all([
+    examIds.length > 0
+      ? prisma.attempt.groupBy({
+          by: ["examId"],
+          where: { examId: { in: examIds } },
+          _count: { _all: true },
+          _avg: { totalScore: true },
+          _max: { totalScore: true },
+        })
+      : Promise.resolve([]),
+    examIds.length > 0
+      ? prisma.question.findMany({
+          where: { examId: { in: examIds } },
+          select: { examId: true, marks: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const statsByExam = new Map(attemptStats.map((s) => [s.examId, s]));
+
+  const questionsByExam = new Map<string, { marks: number | null }[]>();
+  for (const q of questions) {
+    const bucket = questionsByExam.get(q.examId) ?? [];
+    bucket.push({ marks: q.marks });
+    questionsByExam.set(q.examId, bucket);
+  }
+
+  // A question may carry its own marks; the rest are worth the exam's
+  // marks-per-correct.
+  const maxScoreByExam = new Map<string, number>();
+  for (const exam of closed) {
+    const pool = questionsByExam.get(exam.id) ?? [];
+    maxScoreByExam.set(
+      exam.id,
+      pool.reduce((sum, q) => sum + (q.marks ?? exam.marksPerCorrect), 0),
+    );
+  }
+
+  // Group class-wise. `closed` is already newest-first, so each group's exams
+  // inherit that order.
+  type Group = {
+    batch: (typeof closed)[number]["batch"];
+    exams: typeof closed;
+  };
+  const groups = new Map<string, Group>();
+  for (const exam of closed) {
+    const group = groups.get(exam.batch.id) ?? { batch: exam.batch, exams: [] };
+    group.exams.push(exam);
+    groups.set(exam.batch.id, group);
+  }
+  const classGroups = [...groups.values()].sort((a, b) =>
+    a.batch.name.localeCompare(b.batch.name),
+  );
+
+  const totalAttempts = attemptStats.reduce((sum, s) => sum + s._count._all, 0);
+  const selectedBatch = batches.find((b) => b.id === batch);
+
+  return (
+    <>
+      <PageHeader
+        title="Reports"
+        description="Marks for every exam whose window has closed, grouped class-wise. Download one exam, or a whole class in a single workbook."
+      />
+
+      {/* Plain GET form so the page stays a server component and a filtered
+          view can be bookmarked or shared. */}
+      <form
+        method="get"
+        className="mb-4 flex flex-wrap items-end gap-3 rounded-[var(--radius-app)] border border-border bg-surface p-3"
+      >
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Filter className="size-4" />
+          Class
+        </div>
+        <Select
+          name="batch"
+          defaultValue={batch}
+          className="w-56"
+          aria-label="Filter by class"
+        >
+          <option value="">All classes</option>
+          {batches.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </Select>
+        <Button type="submit" variant="secondary">
+          Apply
+        </Button>
+        {batch && (
+          <Button asChild variant="ghost">
+            <Link href="/admin/reports">Clear</Link>
+          </Button>
+        )}
+      </form>
+
+      {closed.length > 0 && (
+        <div className="mb-6 grid gap-4 sm:grid-cols-3">
+          <Stat label="Closed exams" value={closed.length} />
+          <Stat
+            label="Classes reporting"
+            value={classGroups.length}
+            hint={selectedBatch ? selectedBatch.name : "all classes"}
+          />
+          <Stat label="Papers written" value={totalAttempts} hint="attempts recorded" />
+        </div>
+      )}
+
+      {closed.length === 0 ? (
+        selectedBatch ? (
+          <EmptyState
+            title={`${selectedBatch.name} has no closed exams`}
+            description="Marks appear here once an exam's window has ended. Until then, follow the paper from the exams page."
+            action={
+              <Button asChild variant="secondary">
+                <Link href="/admin/reports">Show all classes</Link>
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            title="No closed exams yet"
+            description="Once a published exam's window ends, its marks show up here — class by class, ready to download as Excel."
+            action={
+              <Button asChild>
+                <Link href="/admin/exams">Go to exams</Link>
+              </Button>
+            }
+          />
+        )
+      ) : (
+        classGroups.map((group) => (
+          <Card key={group.batch.id} className="mb-6">
+            <CardHeader className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  {group.batch.name}
+                  <Badge tone="primary">Class</Badge>
+                </CardTitle>
+                <CardDescription>
+                  {group.exams.length} closed{" "}
+                  {group.exams.length === 1 ? "exam" : "exams"} ·{" "}
+                  {group.batch._count.students}{" "}
+                  {group.batch._count.students === 1 ? "student" : "students"}
+                </CardDescription>
+              </div>
+              <Button asChild variant="secondary" size="sm">
+                <a href={`/api/admin/reports/${group.batch.id}`}>
+                  <FileSpreadsheet /> Download class marks
+                </a>
+              </Button>
+            </CardHeader>
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Exam</Th>
+                  <Th>Exam date</Th>
+                  <Th>Appeared</Th>
+                  <Th>Average</Th>
+                  <Th>Highest</Th>
+                  <Th className="text-right">Marks</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.exams.map((exam) => {
+                  const stats = statsByExam.get(exam.id);
+                  const maxScore = maxScoreByExam.get(exam.id) ?? 0;
+                  const appeared = stats?._count._all ?? 0;
+                  const average =
+                    Math.round((stats?._avg.totalScore ?? 0) * 100) / 100;
+                  const highest = stats?._max.totalScore ?? 0;
+
+                  return (
+                    <tr key={exam.id}>
+                      <Td>
+                        <p className="font-medium">{exam.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Closed {formatDate(exam.endsAt)}
+                        </p>
+                      </Td>
+                      <Td className="text-muted-foreground">
+                        {formatDate(exam.examDate)}
+                      </Td>
+                      <Td className="tabular-nums">
+                        {appeared} / {group.batch._count.students}
+                        {appeared === 0 && (
+                          <Badge tone="warning" className="ml-2">
+                            nobody sat
+                          </Badge>
+                        )}
+                      </Td>
+                      <Td className="tabular-nums text-muted-foreground">
+                        {average} / {maxScore}
+                      </Td>
+                      <Td className="font-semibold tabular-nums text-success">
+                        {highest} / {maxScore}
+                      </Td>
+                      <Td>
+                        <div className="flex justify-end gap-2">
+                          <Button asChild variant="ghost" size="sm">
+                            <Link href={`/admin/exams/${exam.id}/results`}>
+                              <ListChecks /> View results
+                            </Link>
+                          </Button>
+                          <Button asChild variant="secondary" size="sm">
+                            <a href={`/api/admin/exams/${exam.id}/results-export`}>
+                              <Download /> Excel
+                            </a>
+                          </Button>
+                        </div>
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+          </Card>
+        ))
+      )}
+    </>
+  );
+}

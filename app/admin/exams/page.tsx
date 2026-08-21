@@ -1,0 +1,172 @@
+import { BarChart3, FileText, FileUp, Plus } from "lucide-react";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import {
+  Badge,
+  Card,
+  EmptyState,
+  PageHeader,
+  Table,
+  Td,
+  Th,
+} from "@/components/ui/primitives";
+import { requireAdmin } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { examPhase } from "@/lib/exam-window";
+import { formatDate, formatTime } from "@/lib/utils";
+
+export const metadata = { title: "Exams · Admin" };
+
+export default async function ExamsPage() {
+  await requireAdmin();
+
+  const exams = await prisma.exam.findMany({
+    orderBy: [{ startsAt: "desc" }],
+    include: {
+      batch: { select: { name: true } },
+      examSubjects: { include: { subject: { select: { name: true } } }, orderBy: { order: "asc" } },
+      _count: { select: { questions: true, attempts: true } },
+    },
+  });
+
+  return (
+    <>
+      <PageHeader
+        title="Exams"
+        description="Every exam belongs to a batch and only opens during its scheduled window."
+        actions={
+          <Button asChild>
+            <Link href="/admin/exams/new">
+              <Plus /> Create exam
+            </Link>
+          </Button>
+        }
+      />
+
+      {exams.length === 0 ? (
+        <EmptyState
+          title="No exams yet"
+          description="Create an exam to set its subjects, schedule and marking. You will upload the question paper afterwards."
+          action={
+            <Button asChild>
+              <Link href="/admin/exams/new">Create exam</Link>
+            </Button>
+          }
+        />
+      ) : (
+        <Card>
+          <Table>
+            <thead>
+              <tr>
+                <Th>Exam</Th>
+                <Th>Batch</Th>
+                <Th>Schedule</Th>
+                <Th>Paper</Th>
+                <Th>Attempts</Th>
+                <Th>Status</Th>
+                <Th className="text-right">Actions</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {exams.map((exam) => {
+                const phase = examPhase(exam);
+                const expected = exam.examSubjects.reduce(
+                  (sum, s) => sum + s.questionCount,
+                  0,
+                );
+                const published = exam.status === "PUBLISHED";
+                const hasPaper = exam._count.questions > 0;
+                // A paper can still be uploaded only while the exam is a draft
+                // nobody has sat; after that the paper action is view-only.
+                const canTakePaper = !published && exam._count.attempts === 0;
+                return (
+                  <tr key={exam.id}>
+                    <Td>
+                      <Link
+                        href={`/admin/exams/${exam.id}`}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        {exam.name}
+                      </Link>
+                      <p className="text-xs text-muted-foreground">
+                        {exam.examSubjects.map((s) => s.subject.name).join(" · ")}
+                      </p>
+                    </Td>
+                    <Td className="text-muted-foreground">{exam.batch.name}</Td>
+                    <Td className="text-muted-foreground">
+                      <p className="text-xs">{formatDate(exam.startsAt)}</p>
+                      <p className="text-xs">
+                        {formatTime(exam.startsAt)} – {formatTime(exam.endsAt)} ·{" "}
+                        {exam.durationMinutes} min
+                      </p>
+                    </Td>
+                    <Td>
+                      {exam._count.questions === 0 ? (
+                        <span className="text-xs text-muted-foreground">
+                          Not uploaded
+                        </span>
+                      ) : (
+                        <span
+                          className={
+                            exam._count.questions === expected
+                              ? "text-xs tabular-nums"
+                              : "text-xs tabular-nums text-warning"
+                          }
+                        >
+                          {exam._count.questions} / {expected}
+                        </span>
+                      )}
+                    </Td>
+                    <Td className="tabular-nums text-muted-foreground">
+                      {exam._count.attempts}
+                    </Td>
+                    <Td>
+                      {/* Draft until the paper is in and the exam published;
+                          from then on the window decides what this reads. */}
+                      {!published || !hasPaper ? (
+                        <Badge tone="neutral">Draft</Badge>
+                      ) : phase === "OPEN" ? (
+                        <Badge tone="success">Active</Badge>
+                      ) : phase === "UPCOMING" ? (
+                        <Badge tone="info">Scheduled</Badge>
+                      ) : (
+                        <Badge tone="neutral">Closed</Badge>
+                      )}
+                    </Td>
+                    <Td>
+                      <div className="flex items-center justify-end gap-1">
+                        {/* Uploading lives on the exam page itself, so a draft
+                            goes straight there rather than via the papers
+                            section and back again. */}
+                        {canTakePaper ? (
+                          <Button asChild variant="ghost" size="sm">
+                            <Link href={`/admin/exams/${exam.id}`}>
+                              <FileUp /> Upload paper
+                            </Link>
+                          </Button>
+                        ) : (
+                          <Button asChild variant="ghost" size="sm">
+                            <Link href={`/admin/papers/${exam.id}`}>
+                              <FileText /> View paper
+                            </Link>
+                          </Button>
+                        )}
+                        {exam._count.attempts > 0 && (
+                          <Button asChild variant="ghost" size="sm">
+                            <Link href={`/admin/exams/${exam.id}/results`}>
+                              <BarChart3 /> Results
+                            </Link>
+                          </Button>
+                        )}
+                      </div>
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        </Card>
+      )}
+    </>
+  );
+}

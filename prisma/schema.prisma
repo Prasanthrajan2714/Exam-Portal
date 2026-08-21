@@ -1,0 +1,373 @@
+// FirstBench Online Exam Portal — data model
+// See the plan for the reasoning behind each table.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../lib/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+// Prisma 7: the connection URL lives in prisma.config.ts for the CLI, and the
+// runtime client gets it via the pg driver adapter in lib/db.ts.
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------- enums
+
+enum Role {
+  ADMIN
+  STUDENT
+}
+
+enum StudentStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum ExamStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum ResultVisibility {
+  IMMEDIATE
+  AFTER_WINDOW
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  EXPIRED
+}
+
+enum OptionKey {
+  A
+  B
+  C
+  D
+}
+
+enum ReopenStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ActivityType {
+  START
+  RESUME
+  TAB_SWITCH
+  BLUR
+  SUBMIT
+  AUTO_SUBMIT
+  EXPIRED
+  REOPEN_REQUESTED
+  REOPEN_APPROVED
+  REOPEN_REJECTED
+}
+
+// ---------------------------------------------------------------- identity
+
+model User {
+  id                 String    @id @default(cuid())
+  username           String    @unique
+  email              String?
+  passwordHash       String
+  role               Role
+  mustChangePassword Boolean   @default(true)
+  /// Stamped on every successful sign-in, so an admin can see who is actually
+  /// using the portal. Null until the account signs in for the first time.
+  lastLoginAt        DateTime? @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+
+  student Student?
+
+  @@index([email])
+}
+
+model Batch {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  students Student[]
+  exams    Exam[]
+  notes    Note[]
+}
+
+model Student {
+  id         String        @id @default(cuid())
+  userId     String        @unique
+  name       String
+  phone      String?
+  email      String?
+  schoolName String?
+  batchId    String
+  status     StudentStatus @default(ACTIVE)
+  createdAt  DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime      @updatedAt @db.Timestamptz(3)
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  batch          Batch           @relation(fields: [batchId], references: [id])
+  attempts       Attempt[]
+  reopenRequests ReopenRequest[]
+
+  @@index([batchId])
+  @@index([status])
+  @@index([name])
+}
+
+// ---------------------------------------------------------------- exam definition
+
+model Subject {
+  id    String @id @default(cuid())
+  name  String @unique
+  order Int    @default(0)
+
+  examSubjects ExamSubject[]
+  questions    Question[]
+  notes        Note[]
+}
+
+model Exam {
+  id      String @id @default(cuid())
+  name    String
+  batchId String
+
+  // Availability window — students may only enter between these instants.
+  examDate DateTime @db.Date
+  startsAt DateTime @db.Timestamptz(3)
+  endsAt   DateTime @db.Timestamptz(3)
+
+  // Per-attempt countdown, independent of the window length.
+  durationMinutes Int
+
+  marksPerCorrect  Float            @default(4)
+  negativeMarks    Float            @default(1)
+  resultVisibility ResultVisibility @default(IMMEDIATE)
+  status           ExamStatus       @default(DRAFT)
+
+  questionPaperFile String?
+  answerKeyFile     String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  batch          Batch           @relation(fields: [batchId], references: [id])
+  examSubjects   ExamSubject[]
+  questions      Question[]
+  attempts       Attempt[]
+  reopenRequests ReopenRequest[]
+
+  @@index([batchId, status])
+  @@index([startsAt, endsAt])
+}
+
+model ExamSubject {
+  id            String @id @default(cuid())
+  examId        String
+  subjectId     String
+  questionCount Int
+  order         Int    @default(0)
+
+  exam    Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id])
+
+  @@unique([examId, subjectId])
+  @@index([examId])
+}
+
+model Question {
+  id        String @id @default(cuid())
+  examId    String
+  subjectId String
+
+  // Question number within its subject (1..questionCount).
+  number Int
+
+  text          String
+  optionA       String
+  optionB       String
+  optionC       String
+  optionD       String
+  correctOption OptionKey
+
+  // Per-question overrides; fall back to the exam defaults when null.
+  marks         Float?
+  negativeMarks Float?
+
+  exam    Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+  subject Subject         @relation(fields: [subjectId], references: [id])
+  answers Answer[]
+  images  QuestionImage[]
+
+  @@unique([examId, subjectId, number])
+  @@index([examId])
+}
+
+/// Diagrams and formula images pulled out of the uploaded .docx. A separate
+/// table rather than columns on Question because one stem can carry several
+/// figures, and options occasionally have their own (graph-choice questions).
+model QuestionImage {
+  id         String      @id @default(cuid())
+  questionId String
+  target     ImageTarget @default(STEM)
+  /// Path relative to UPLOAD_DIR; served through /api/uploads behind auth.
+  path       String
+  alt        String?
+  order      Int         @default(0)
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+}
+
+enum ImageTarget {
+  STEM
+  A
+  B
+  C
+  D
+}
+
+// ---------------------------------------------------------------- attempts
+
+model Attempt {
+  id        String        @id @default(cuid())
+  examId    String
+  studentId String
+  status    AttemptStatus @default(IN_PROGRESS)
+
+  startedAt   DateTime  @default(now()) @db.Timestamptz(3)
+  deadlineAt  DateTime  @db.Timestamptz(3)
+  submittedAt DateTime? @db.Timestamptz(3)
+
+  totalScore      Float?
+  correctCount    Int?
+  wrongCount      Int?
+  unansweredCount Int?
+
+  // Anti-cheat / recovery bookkeeping.
+  sessionToken     String
+  /// Set the first time the exam screen is opened. A second open with this
+  /// already set is the "closed it and came back" case the spec requires an
+  /// admin to authorise; approving a reopen clears it and issues a new token.
+  sessionClaimedAt DateTime? @db.Timestamptz(3)
+  tabSwitchCount   Int       @default(0)
+  reopenCount      Int       @default(0)
+  extraTimeMinutes Int       @default(0)
+
+  exam           Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student        Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  answers        Answer[]
+  reopenRequests ReopenRequest[]
+  activityLogs   ActivityLog[]
+
+  // One attempt per student per exam — enforced by the database, not by app code.
+  @@unique([examId, studentId])
+  @@index([examId, status])
+  @@index([studentId])
+}
+
+model Answer {
+  id         String @id @default(cuid())
+  attemptId  String
+  questionId String
+
+  selectedOption  OptionKey?
+  markedForReview Boolean    @default(false)
+  visited         Boolean    @default(false)
+
+  // Filled in at grading time so scorecards need no recomputation.
+  isCorrect    Boolean?
+  scoreAwarded Float?
+
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  attempt  Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@index([questionId])
+}
+
+model ReopenRequest {
+  id        String       @id @default(cuid())
+  attemptId String
+  studentId String
+  examId    String
+  reason    String
+  status    ReopenStatus @default(PENDING)
+
+  adminNote         String?
+  grantExtraMinutes Int     @default(0)
+
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  resolvedAt DateTime? @db.Timestamptz(3)
+  resolvedBy String?
+
+  attempt Attempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  exam    Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([attemptId])
+}
+
+model ActivityLog {
+  id        String       @id @default(cuid())
+  attemptId String
+  type      ActivityType
+  meta      String?
+  at        DateTime     @default(now()) @db.Timestamptz(3)
+
+  attempt Attempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId, at])
+}
+
+// ---------------------------------------------------------------- study notes
+
+/// Reference material (PDF) an admin publishes to a whole batch — read-only for
+/// students. Deliberately not hung off Exam: notes have no window, no grading
+/// and no questions, they are addressed at a class the way a handout is.
+model Note {
+  id          String  @id @default(cuid())
+  title       String
+  description String?
+  batchId     String
+  /// Optional, and the reason "Physics material" is a thing: tagging lets the
+  /// student page group by subject. Untagged notes fall under a general heading.
+  subjectId   String?
+
+  /// Path relative to UPLOAD_DIR; streamed through /api/notes/[id] behind auth,
+  /// never served straight off the filesystem.
+  filePath     String
+  /// The admin's own filename, kept only so downloads land with a sane name —
+  /// the stored file is a uuid so two batches can't collide.
+  originalName String
+  fileSize     Int
+  mimeType     String
+
+  /// Lets an admin pull a note back from students without destroying the file,
+  /// which matters when a handout is withdrawn for a correction rather than
+  /// because it was a mistake.
+  active     Boolean  @default(true)
+  uploadedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  // Cascade rather than restrict: batch deletion is already refused while any
+  // student or exam depends on it, and failing on a leftover handout would be
+  // a dead end with no UI to clear it.
+  batch   Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  subject Subject? @relation(fields: [subjectId], references: [id])
+
+  // The student list is exactly "my batch, still visible, newest first"; the
+  // admin list is the same minus the active filter.
+  @@index([batchId, active, uploadedAt])
+  @@index([subjectId])
+}

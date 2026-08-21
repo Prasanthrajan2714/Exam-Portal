@@ -1,0 +1,34 @@
+# Postgres for local development.
+#
+# This machine runs a native PostgreSQL 17 installed via winget, so this file is
+# not needed here — it is for anyone setting the project up without a local
+# Postgres, and for CI.
+#
+#   docker compose up -d
+#   npm run setup
+#
+# The credentials match the DATABASE_URL in .env.example.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: firstbench-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: firstbench_exam
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Migrations run straight after `up`, so wait until the server really
+      # accepts connections rather than just until the container starts.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d firstbench_exam"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:

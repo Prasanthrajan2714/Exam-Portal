@@ -1,0 +1,181 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ tokens
+   Palette is taken from the FirstBench logo: its yellow (#ffc61a) is the
+   primary fill, its near-black is the ink that sits on top of that yellow, and
+   the neutrals are warmed towards the same hue so the chrome reads as one
+   brand. Light is the default — this portal is used in bright classrooms and
+   exam halls. Dark mode follows the OS setting.
+
+   Yellow is too light to carry white text or to be legible as text itself, so
+   fills use `--primary` + `--primary-foreground` while text and icons that
+   need the brand colour use `--primary-ink` (a dark amber, >5:1 on both
+   `--surface` and `--primary-soft`). */
+:root {
+  --background: #faf8f3;
+  --surface: #ffffff;
+  --surface-muted: #f4f1e8;
+  --foreground: #14120c;
+  --muted-foreground: #6b6455;
+  --border: #eae5da;
+  --border-strong: #d6cfc0;
+
+  --primary: #ffc61a;
+  --primary-hover: #f0b400;
+  --primary-foreground: #17130a;
+  --primary-soft: #fff6da;
+  --primary-ink: #8a5a00;
+
+  --success: #15803d;
+  --success-soft: #dcfce7;
+  /* Orange rather than amber: amber warnings would be mistaken for brand. */
+  --warning: #c2410c;
+  --warning-soft: #ffe8d5;
+  --danger: #b91c1c;
+  --danger-soft: #fee2e2;
+  --info: #1d4ed8;
+  --info-soft: #dbeafe;
+  --review: #7e22ce;
+  --review-soft: #f3e8ff;
+
+  --ring: #d9a300;
+  --radius: 0.625rem;
+
+  /* ------------------------------------------------------------------ chart
+     Chart fills need >=3:1 against `--surface`, which the brand yellow cannot
+     manage on white, so the single-series hue is the deeper amber of the same
+     family. The three attempt-outcome hues were checked for colour-blind
+     separation as a set (worst adjacent pair dE 27 deutan) and every segment
+     also carries a label, so colour is never the only cue. */
+  --chart-1: #a16207;
+  --chart-1-soft: #fdf0cf;
+  --chart-submitted: #15803d;
+  --chart-progress: #1d4ed8;
+  --chart-expired: #c2410c;
+  --chart-track: #f1ede2;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #14120d;
+    --surface: #1d1a13;
+    --surface-muted: #292419;
+    --foreground: #f5f1e6;
+    --muted-foreground: #a8a08c;
+    --border: #2b261b;
+    --border-strong: #3e3728;
+
+    --primary: #ffc61a;
+    --primary-hover: #ffd450;
+    --primary-foreground: #17130a;
+    --primary-soft: #3a2c08;
+    --primary-ink: #ffd45c;
+
+    --success: #4ade80;
+    --success-soft: #052e16;
+    --warning: #fb923c;
+    --warning-soft: #3a1e08;
+    --danger: #f87171;
+    --danger-soft: #450a0a;
+    --info: #60a5fa;
+    --info-soft: #0c2a5b;
+    --review: #c084fc;
+    --review-soft: #2e1065;
+
+    --ring: #ffc61a;
+
+    /* Re-stepped for the dark surface rather than flipped: the light steps are
+       too dark to read on it, and yellow is legible here where it was not on
+       white. */
+    --chart-1: #ffc61a;
+    --chart-1-soft: #4a3809;
+    --chart-submitted: #16a34a;
+    --chart-progress: #3b82f6;
+    --chart-expired: #ea580c;
+    --chart-track: #2b261b;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-ink: var(--primary-ink);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-review: var(--review);
+  --color-review-soft: var(--review-soft);
+
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-1-soft: var(--chart-1-soft);
+  --color-chart-submitted: var(--chart-submitted);
+  --color-chart-progress: var(--chart-progress);
+  --color-chart-expired: var(--chart-expired);
+  --color-chart-track: var(--chart-track);
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --radius-app: var(--radius);
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Consistent focus ring on every interactive element. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------- exam-hall lockdown helper
+   Applied to the exam runner only. Blocking selection here removes the easiest
+   copy route; the real enforcement is server-side one-attempt-per-student. */
+.exam-locked {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.exam-locked input,
+.exam-locked textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Printed scorecards: drop the app chrome so Ctrl+P produces a clean PDF. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+    color: #000;
+  }
+  .print-plain {
+    border: 1px solid #ccc !important;
+    box-shadow: none !important;
+  }
+}
