@@ -236,11 +236,14 @@ export function Stat({
   value,
   hint,
   tone,
+  icon,
 }: {
   label: string;
   value: React.ReactNode;
   hint?: string;
   tone?: "success" | "danger" | "primary";
+  /** Optional glyph shown beside the label. Decorative — the label carries the meaning. */
+  icon?: React.ReactNode;
 }) {
   const toneClass =
     tone === "success"
@@ -252,7 +255,12 @@ export function Stat({
           : "text-foreground";
   return (
     <div className="rounded-[var(--radius-app)] border border-border bg-surface px-4 py-3">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {icon && (
+          <span aria-hidden className="shrink-0 [&>svg]:size-3.5">
+            {icon}
+          </span>
+        )}
         {label}
       </p>
       <p className={cn("mt-1 text-2xl font-semibold tabular-nums", toneClass)}>

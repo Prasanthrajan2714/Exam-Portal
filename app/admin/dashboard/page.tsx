@@ -1,4 +1,4 @@
-import { RotateCcw } from "lucide-react";
+import { BookOpen, Layers, RotateCcw, Users } from "lucide-react";
 import Link from "next/link";
 import { AttemptOutcomesChart, StudentsPerBatchChart } from "./charts";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ import {
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { examPhase } from "@/lib/exam-window";
-import { formatDateTime } from "@/lib/utils";
+import { formatDate, formatTime } from "@/lib/utils";
 
 export const metadata = { title: "Dashboard · Admin" };
 
@@ -104,14 +104,15 @@ export default async function AdminDashboard() {
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Active batches" value={batchCount} />
-        <Stat label="Active students" value={studentCount} />
-        <Stat label="Published exams" value={examCount} />
+        <Stat label="Active batches" value={batchCount} icon={<Layers />} />
+        <Stat label="Active students" value={studentCount} icon={<Users />} />
+        <Stat label="Published exams" value={examCount} icon={<BookOpen />} />
         <Stat
           label="Reopen requests"
           value={pendingReopens}
           tone={pendingReopens > 0 ? "danger" : undefined}
           hint={pendingReopens > 0 ? "Awaiting your approval" : "Nothing pending"}
+          icon={<RotateCcw />}
         />
       </div>
 
@@ -154,8 +155,13 @@ export default async function AdminDashboard() {
                       </Link>
                     </Td>
                     <Td className="text-muted-foreground">{exam.batch.name}</Td>
+                    {/* Both ends of the window: when it opens on its own says
+                        nothing about how long students have to turn up. */}
                     <Td className="text-muted-foreground">
-                      {formatDateTime(exam.startsAt)}
+                      <p>{formatDate(exam.startsAt)}</p>
+                      <p className="text-xs">
+                        {formatTime(exam.startsAt)} – {formatTime(exam.endsAt)}
+                      </p>
                     </Td>
                     <Td className="tabular-nums">
                       {exam._count.questions}
