@@ -44,7 +44,7 @@ async function exists(relative: string): Promise<boolean> {
 
 describe("copying an exam's uploads to a reused exam", () => {
   it("copies the bytes into the target's own directory, not a reference", async () => {
-    const original = await saveExamImage(SOURCE, PNG_BYTES, "image/png");
+    const { path: original } = await saveExamImage(SOURCE, PNG_BYTES, "image/png");
     expect(original.startsWith(`${examDir(SOURCE).split(path.sep).join("/")}/images/`)).toBe(true);
 
     const copied = await copyExamImage(TARGET, original);

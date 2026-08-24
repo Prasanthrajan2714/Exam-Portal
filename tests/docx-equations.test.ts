@@ -12,17 +12,31 @@ import { clearExamUploads, resolveUploadPath } from "@/lib/uploads";
  */
 
 const EXAM_ID = "eqtest001";
-const SOURCE = "uploads/exams/cmt6xi7gw001ph8od3odniejy/c8ad2640-80f6-40de-8e9f-5ca23358281a.docx";
+const SOURCE_DIR = "uploads/exams/cmt6xi7gw001ph8od3odniejy";
+
+/**
+ * The stored document is named by a fresh UUID every time the paper is
+ * re-uploaded, so this looks for whichever .docx is in that exam's directory
+ * rather than pinning a filename that goes stale on the next upload.
+ */
+async function findSampleDocument(): Promise<Buffer | null> {
+  try {
+    const dir = path.resolve(SOURCE_DIR);
+    const names = (await fs.readdir(dir)).filter((n) => n.toLowerCase().endsWith(".docx"));
+    if (names.length === 0) return null;
+    return await fs.readFile(path.join(dir, names[0]));
+  } catch {
+    return null;
+  }
+}
 
 describe("a paper whose equations are Word metafiles", () => {
   it(
-    "stores something a browser can show",
+    "stores something a browser can show, at the size the document shows it",
     { timeout: 120_000 },
     async () => {
-      let docx: Buffer;
-      try {
-        docx = await fs.readFile(path.resolve(SOURCE));
-      } catch {
+      const docx = await findSampleDocument();
+      if (!docx) {
         console.log("the sample document is no longer on disk — skipping");
         return;
       }
@@ -45,6 +59,19 @@ describe("a paper whose equations are Word metafiles", () => {
           byExtension.set(ext, (byExtension.get(ext) ?? 0) + 1);
         }
         console.log("stored as:", JSON.stringify([...byExtension]));
+        console.log("sizes:", JSON.stringify(images.map((i) => `${i.width}x${i.height}`)));
+
+        // These are inline formulae — Word sets them at text height, and the
+        // parser has to carry that through. Rendering at the raster's own size
+        // instead is what made a lone N_A x 4 fill a whole option.
+        for (const img of images) {
+          expect(img.width, `${img.path} has no width`).toBeGreaterThan(0);
+          expect(img.height, `${img.path} has no height`).toBeGreaterThan(0);
+          // Rasterised these are over a thousand pixels wide; laid out, none of
+          // them is wider than a line of text or taller than about two.
+          expect(img.width, `${img.path} is ${img.width}px wide`).toBeLessThan(400);
+          expect(img.height, `${img.path} is ${img.height}px tall`).toBeLessThan(60);
+        }
 
         // The whole point: nothing left in a format the browser cannot render.
         expect(byExtension.get(".wmf") ?? 0, "no WMF should survive").toBe(0);

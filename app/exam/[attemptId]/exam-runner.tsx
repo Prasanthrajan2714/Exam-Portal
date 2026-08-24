@@ -11,7 +11,6 @@ import {
   Send,
   X,
 } from "lucide-react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -26,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Alert } from "@/components/ui/primitives";
+import { QuestionImage } from "@/components/question-image";
 import { formatDuration } from "@/lib/exam-window";
 import { cn } from "@/lib/utils";
 
@@ -37,7 +37,13 @@ export type RunnerQuestion = {
   number: number;
   text: string;
   options: Record<OptionKey, string>;
-  images: { path: string; target: string }[];
+  images: {
+    path: string;
+    target: string;
+    /** Size the source document laid this out at; null for anything stored before that was kept. */
+    width: number | null;
+    height: number | null;
+  }[];
   selectedOption: OptionKey | null;
   markedForReview: boolean;
 };
@@ -449,15 +455,12 @@ export function ExamRunner({
             {stemImages.length > 0 && (
               <div className="mt-4 flex flex-wrap gap-3">
                 {stemImages.map((img) => (
-                  <Image
+                  <QuestionImage
                     key={img.path}
-                    src={`/api/uploads/${img.path}`}
+                    image={img}
                     alt="Question diagram"
-                    width={480}
-                    height={360}
-                    unoptimized
-                    className="rounded border border-border bg-white object-contain"
-                    style={{ maxHeight: 360, width: "auto" }}
+                    fallbackWidth={480}
+                    fallbackHeight={360}
                   />
                 ))}
               </div>
@@ -495,15 +498,12 @@ export function ExamRunner({
                       {optionImages.length > 0 && (
                         <span className="mt-2 flex flex-wrap gap-2">
                           {optionImages.map((img) => (
-                            <Image
+                            <QuestionImage
                               key={img.path}
-                              src={`/api/uploads/${img.path}`}
+                              image={img}
                               alt={`Option ${key}`}
-                              width={200}
-                              height={150}
-                              unoptimized
-                              className="rounded border border-border bg-white object-contain"
-                              style={{ maxHeight: 150, width: "auto" }}
+                              fallbackWidth={200}
+                              fallbackHeight={150}
                             />
                           ))}
                         </span>

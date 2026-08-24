@@ -1,9 +1,9 @@
 import { ArrowLeft, CheckCircle2, Clock, MinusCircle, XCircle } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BrandMark } from "@/components/brand";
 import { PrintButton } from "@/components/print-button";
+import { QuestionImage } from "@/components/question-image";
 import { Button } from "@/components/ui/button";
 import {
   Alert,
@@ -277,15 +277,12 @@ export default async function StudentResultPage({
                 {stemImages.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {stemImages.map((img) => (
-                      <Image
+                      <QuestionImage
                         key={img.id}
-                        src={`/api/uploads/${img.path}`}
+                        image={img}
                         alt="Question diagram"
-                        width={320}
-                        height={240}
-                        unoptimized
-                        className="rounded border border-border bg-white object-contain"
-                        style={{ maxHeight: 240, width: "auto" }}
+                        fallbackWidth={320}
+                        fallbackHeight={240}
                       />
                     ))}
                   </div>

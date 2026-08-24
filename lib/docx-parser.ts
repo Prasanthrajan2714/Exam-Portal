@@ -2,7 +2,7 @@ import "server-only";
 import mammoth from "mammoth";
 import { inlineEquations } from "./omml";
 import { mapScript, SUBSCRIPTS, SUPERSCRIPTS } from "./text-scripts";
-import { saveExamImage } from "./uploads";
+import { saveExamImage, type StoredImage } from "./uploads";
 
 /**
  * Parses a question paper from the .docx template into structured questions.
@@ -19,6 +19,13 @@ export type OptionKey = "A" | "B" | "C" | "D";
 export type ParsedImage = {
   /** Upload-root-relative path. */
   path: string;
+  /**
+   * The size the document lays this out at, in CSS pixels — 0 when unknown.
+   * Word writes Equation Editor formulae as text-height metafiles, so without
+   * carrying this an inline formula displays at whatever it was rasterised to.
+   */
+  width: number;
+  height: number;
   target: "STEM" | OptionKey;
 };
 
@@ -47,9 +54,12 @@ const OPTION_KEYS: OptionKey[] = ["A", "B", "C", "D"];
 
 // ---------------------------------------------------------------- html → lines
 
+/** An image on a line, before it is known which part of a question it belongs to. */
+type FragmentImage = Omit<ParsedImage, "target">;
+
 type Fragment = {
   text: string;
-  images: string[];
+  images: FragmentImage[];
   /** Depth of the ordered list this line came from; 0 when it is a plain paragraph. */
   orderedDepth: number;
 };
@@ -95,12 +105,12 @@ function htmlToFragments(html: string): Fragment[] {
     .replace(/<br\s*\/?>/gi, "\n");
 
   return withBreaks.split("\n").map((rawLine) => {
-    const images: string[] = [];
-    // Image placeholders were injected as <img src="upload:<path>">.
+    const images: FragmentImage[] = [];
+    // Image placeholders were injected by encodeImageRef.
     const withoutImages = rawLine.replace(
       /<img[^>]*src="upload:([^"]+)"[^>]*>/gi,
       (_match, src: string) => {
-        images.push(decodeHtml(src));
+        images.push(decodeImageRef(decodeHtml(src)));
         return " ";
       },
     );
@@ -144,6 +154,24 @@ function decodeHtml(text: string): string {
     );
 }
 
+/**
+ * Mammoth's image hook can only hand the HTML a `src` string, so the document's
+ * intended display size rides along inside the placeholder and is unpacked when
+ * the placeholder is read back out.
+ */
+const IMAGE_REF_RE = /^(\d+)x(\d+):([\s\S]+)$/;
+
+function encodeImageRef(stored: StoredImage): string {
+  return `upload:${stored.width}x${stored.height}:${stored.path}`;
+}
+
+function decodeImageRef(src: string): FragmentImage {
+  const match = src.match(IMAGE_REF_RE);
+  // A bare path stays valid — it just means no size was recorded.
+  if (!match) return { path: src, width: 0, height: 0 };
+  return { path: match[3], width: Number(match[1]), height: Number(match[2]) };
+}
+
 // ---------------------------------------------------------------- patterns
 
 const SUBJECT_RE = /^\[?\s*subject\s*[:\-]\s*(.+?)\s*\]?$/i;
@@ -176,7 +204,7 @@ export async function parseQuestionPaper(
             Buffer.from(data),
             image.contentType ?? "image/png",
           );
-          return { src: `upload:${stored}` };
+          return { src: encodeImageRef(stored) };
         } catch {
           // A single unreadable image must not abort the whole paper.
           return { src: "" };
@@ -240,8 +268,8 @@ export async function parseQuestionPaper(
       };
       cursor = "STEM";
       lastNumber.set(currentSubject, Number(questionMatch[1]));
-      for (const src of fragment.images) {
-        current.images.push({ path: src, target: "STEM" });
+      for (const image of fragment.images) {
+        current.images.push({ ...image, target: "STEM" });
       }
       if (!currentSubject) {
         warnings.push({
@@ -258,8 +286,8 @@ export async function parseQuestionPaper(
       const key = optionMatch[1].toUpperCase() as OptionKey;
       current.options[key] = optionMatch[2].trim();
       cursor = key;
-      for (const src of fragment.images) {
-        current.images.push({ path: src, target: key });
+      for (const image of fragment.images) {
+        current.images.push({ ...image, target: key });
       }
       return;
     }
@@ -283,8 +311,8 @@ export async function parseQuestionPaper(
         issues: [],
       };
       cursor = "STEM";
-      for (const src of fragment.images) {
-        current.images.push({ path: src, target: "STEM" });
+      for (const image of fragment.images) {
+        current.images.push({ ...image, target: "STEM" });
       }
       if (!currentSubject) {
         warnings.push({
@@ -302,8 +330,8 @@ export async function parseQuestionPaper(
       if (slot) {
         current.options[slot] = text;
         cursor = slot;
-        for (const src of fragment.images) {
-          current.images.push({ path: src, target: slot });
+        for (const image of fragment.images) {
+          current.images.push({ ...image, target: slot });
         }
         return;
       }
@@ -318,8 +346,8 @@ export async function parseQuestionPaper(
           current.options[cursor] = `${current.options[cursor]} ${text}`.trim();
         }
       }
-      for (const src of fragment.images) {
-        current.images.push({ path: src, target: cursor });
+      for (const image of fragment.images) {
+        current.images.push({ ...image, target: cursor });
       }
       return;
     }

@@ -47,7 +47,13 @@ export type DraftQuestion = {
   correctOption: "A" | "B" | "C" | "D" | null;
   marks: number | null;
   negativeMarks: number | null;
-  images: { path: string; target: "STEM" | "A" | "B" | "C" | "D" }[];
+  images: {
+    path: string;
+    target: "STEM" | "A" | "B" | "C" | "D";
+    /** Size the document lays the image out at, in CSS pixels; 0 when unknown. */
+    width: number;
+    height: number;
+  }[];
   issues: string[];
 };
 
@@ -284,6 +290,9 @@ const publishSchema = z.object({
           z.object({
             path: z.string(),
             target: z.enum(["STEM", "A", "B", "C", "D"]),
+            // Papers previewed before sizes were carried through have neither.
+            width: z.number().nullish(),
+            height: z.number().nullish(),
           }),
         ),
       }),
@@ -401,6 +410,10 @@ export async function publishPaper(
             create: q.images.map((image, order) => ({
               path: image.path,
               target: image.target,
+              // 0 means the document never said; store null so the renderer
+              // falls back rather than laying the image out at nothing.
+              width: image.width || null,
+              height: image.height || null,
               order,
             })),
           },
@@ -618,7 +631,18 @@ export async function reusePaperForBatch(
                   const path = copiedPaths.get(image.path);
                   // An image whose file has vanished is dropped rather than
                   // recorded as a path that would 404 for every student.
-                  return path ? [{ path, target: image.target, alt: image.alt, order }] : [];
+                  // The size travels with the copy: without it a reused paper's
+                  // equations go back to filling their options.
+                  return path
+                    ? [{
+                        path,
+                        target: image.target,
+                        alt: image.alt,
+                        width: image.width,
+                        height: image.height,
+                        order,
+                      }]
+                    : [];
                 }),
               },
             },

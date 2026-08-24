@@ -236,6 +236,11 @@ model QuestionImage {
   target     ImageTarget @default(STEM)
   /// Path relative to UPLOAD_DIR; served through /api/uploads behind auth.
   path       String
+  /// The size the document lays this out at, in CSS pixels. Word equations are
+  /// inline and text-height; without this they render at whatever the raster
+  /// happens to be and swamp the option they belong to.
+  width      Int?
+  height     Int?
   alt        String?
   order      Int         @default(0)
 

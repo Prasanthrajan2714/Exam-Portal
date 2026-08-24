@@ -29,7 +29,14 @@ export function isMetafile(contentType: string): boolean {
 /** Widest we render. Equations sit inline, so this is generous already. */
 const MAX_WIDTH = 1400;
 
-function script(input: string, output: string): string {
+export type RasterisedMetafile = {
+  png: Buffer;
+  /** The size Word lays the equation out at, in CSS pixels. */
+  width: number;
+  height: number;
+};
+
+function script(input: string, output: string, sizeFile: string): string {
   // Rendered at a multiple of the metafile's own size and then capped: these are
   // vectors, so rasterising at 1x gives visibly soft text at reading size.
   return `
@@ -55,6 +62,10 @@ try {
     } finally { $g.Dispose() }
     $bmp.Save('${output}', [System.Drawing.Imaging.ImageFormat]::Png)
   } finally { $bmp.Dispose() }
+  # The size Word lays this out at — what it should actually display at.
+  $cssW = [int][Math]::Round($mf.PhysicalDimension.Width / 100.0 / 25.4 * 96.0)
+  $cssH = [int][Math]::Round($mf.PhysicalDimension.Height / 100.0 / 25.4 * 96.0)
+  [System.IO.File]::WriteAllText('${sizeFile}', "$cssW $cssH")
 } finally { $mf.Dispose() }
 `.trim();
 }
@@ -87,24 +98,39 @@ function runPowerShell(source: string): Promise<boolean> {
  * Null is an expected outcome, not an error: the caller falls back to storing
  * the original.
  */
-export async function metafileToPng(data: Buffer): Promise<Buffer | null> {
+export async function metafileToPng(data: Buffer): Promise<RasterisedMetafile | null> {
   if (process.platform !== "win32") return null;
 
   const dir = path.join(os.tmpdir(), `wmf-${randomUUID()}`);
   const input = path.join(dir, "in.wmf");
   const output = path.join(dir, "out.png");
+  const sizeFile = path.join(dir, "size.txt");
 
   try {
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(input, data);
 
-    const ok = await runPowerShell(script(input, output));
+    const ok = await runPowerShell(script(input, output, sizeFile));
     if (!ok) return null;
 
     const png = await fs.readFile(output);
     // A blank render is worse than the original: it looks like a working image
     // that happens to say nothing.
-    return png.length > 0 ? png : null;
+    if (png.length === 0) return null;
+
+    // Without this an inline equation displays at the size it was rasterised
+    // at, which is how they came to fill an option box.
+    let width = 0;
+    let height = 0;
+    try {
+      const [w, h] = (await fs.readFile(sizeFile, "utf8")).trim().split(/\s+/);
+      width = Number(w) || 0;
+      height = Number(h) || 0;
+    } catch {
+      /* size is optional; the caller falls back to the raster's own size */
+    }
+
+    return { png, width, height };
   } catch {
     return null;
   } finally {

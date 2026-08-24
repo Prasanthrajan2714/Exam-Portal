@@ -81,11 +81,14 @@ describe("metafileToPng", () => {
   const maybe = onWindows ? it : it.skip;
 
   maybe("rasterises a metafile into a PNG", { timeout: 60_000 }, async () => {
-    const png = await metafileToPng(placeableWmf());
-    expect(png, "conversion should succeed on Windows").not.toBeNull();
+    const raster = await metafileToPng(placeableWmf());
+    expect(raster, "conversion should succeed on Windows").not.toBeNull();
     // PNG magic number.
-    expect(png!.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
-    expect(png!.length).toBeGreaterThan(100);
+    expect(raster!.png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    expect(raster!.png.length).toBeGreaterThan(100);
+    // The size the document intends, which is what it must display at.
+    expect(raster!.width).toBeGreaterThan(0);
+    expect(raster!.height).toBeGreaterThan(0);
   });
 
   maybe("converts a real Word equation if one is on disk", { timeout: 60_000 }, async () => {
@@ -111,9 +114,13 @@ describe("metafileToPng", () => {
       console.log("no .wmf on disk to try — skipping");
       return;
     }
-    const png = await metafileToPng(await fs.readFile(found));
-    console.log(`converted ${path.basename(found)} -> ${png ? `${png.length} bytes` : "null"}`);
-    expect(png).not.toBeNull();
+    const raster = await metafileToPng(await fs.readFile(found));
+    console.log(
+      `converted ${path.basename(found)} -> ${
+        raster ? `${raster.png.length} bytes, displays at ${raster.width}x${raster.height}` : "null"
+      }`,
+    );
+    expect(raster).not.toBeNull();
   });
 
   it("returns null rather than throwing on rubbish input", async () => {

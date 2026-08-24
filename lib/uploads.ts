@@ -60,11 +60,23 @@ const EXTENSION_BY_MIME: Record<string, string> = {
  * path. Content-addressed by hash, so a logo repeated on every page is stored
  * once instead of sixty times.
  */
+export type StoredImage = {
+  /** Upload-root-relative path. */
+  path: string;
+  /**
+   * The size the document lays this out at, in CSS pixels — zero when unknown.
+   * Word equations are inline and text-height (152 x 24 for a typical one), and
+   * without carrying that through they render at the raster's own size.
+   */
+  width: number;
+  height: number;
+};
+
 export async function saveExamImage(
   examId: string,
   data: Buffer,
   contentType: string,
-): Promise<string> {
+): Promise<StoredImage> {
   const dirRelative = path.join(examDir(examId), "images");
   const dirAbsolute = resolveUploadPath(dirRelative);
   if (!dirAbsolute) throw new Error("Invalid upload path");
@@ -74,11 +86,15 @@ export async function saveExamImage(
   // they reached the review screen as broken images. Rasterise them here so what
   // is stored is what an admin and a student can actually see. If the platform
   // cannot do it, keep the original rather than losing the equation.
+  let width = 0;
+  let height = 0;
   if (isMetafile(contentType)) {
-    const png = await metafileToPng(data);
-    if (png) {
-      data = png;
+    const raster = await metafileToPng(data);
+    if (raster) {
+      data = raster.png;
       contentType = "image/png";
+      width = raster.width;
+      height = raster.height;
     }
   }
 
@@ -94,7 +110,11 @@ export async function saveExamImage(
   }
 
   // Always forward slashes: this value ends up in URLs.
-  return `${dirRelative.split(path.sep).join("/")}/${filename}`;
+  return {
+    path: `${dirRelative.split(path.sep).join("/")}/${filename}`,
+    width,
+    height,
+  };
 }
 
 /** Stores an uploaded source document (the .docx or .xlsx) for later reference. */
@@ -162,7 +182,7 @@ export async function copyExamImage(
 
   const contentType = contentTypeFor(absolute);
   if (contentType !== "application/octet-stream") {
-    return saveExamImage(targetExamId, data, contentType);
+    return (await saveExamImage(targetExamId, data, contentType)).path;
   }
 
   // saveExamImage derives the extension from the MIME type, and contentTypeFor

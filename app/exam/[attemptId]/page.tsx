@@ -78,7 +78,12 @@ export default async function ExamPage({
       C: q.optionC,
       D: q.optionD,
     },
-    images: q.images.map((i) => ({ path: i.path, target: i.target })),
+    images: q.images.map((i) => ({
+      path: i.path,
+      target: i.target,
+      width: i.width,
+      height: i.height,
+    })),
     // Answers saved before the interruption come straight back.
     selectedOption: answerByQuestion.get(q.id)?.selectedOption ?? null,
     markedForReview: answerByQuestion.get(q.id)?.markedForReview ?? false,

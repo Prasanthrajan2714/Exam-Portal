@@ -12,10 +12,10 @@ import {
   RefreshCw,
   Upload,
 } from "lucide-react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
+import { QuestionImage } from "@/components/question-image";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import {
@@ -676,7 +676,7 @@ function QuestionEditor({
         {stemImages.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {stemImages.map((img) => (
-              <ImageThumb key={img.path} path={img.path} />
+              <ImageThumb key={img.path} image={img} />
             ))}
           </div>
         )}
@@ -716,7 +716,7 @@ function QuestionEditor({
                 {images.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {images.map((img) => (
-                      <ImageThumb key={img.path} path={img.path} small />
+                      <ImageThumb key={img.path} image={img} small />
                     ))}
                   </div>
                 )}
@@ -875,16 +875,19 @@ function tamilMissing(q: DraftQuestion, t: TranslatedQuestion | undefined): bool
   return OPTIONS.some((k) => optionValue(q, k).trim() && !tamilOption(t, k).trim());
 }
 
-function ImageThumb({ path, small }: { path: string; small?: boolean }) {
+function ImageThumb({
+  image,
+  small,
+}: {
+  image: DraftQuestion["images"][number];
+  small?: boolean;
+}) {
   return (
-    <Image
-      src={`/api/uploads/${path}`}
+    <QuestionImage
+      image={image}
       alt="Question diagram"
-      width={small ? 90 : 220}
-      height={small ? 90 : 220}
-      unoptimized
-      className="rounded border border-border bg-white object-contain"
-      style={{ maxHeight: small ? 90 : 220, width: "auto" }}
+      fallbackWidth={small ? 90 : 220}
+      fallbackHeight={small ? 90 : 220}
     />
   );
 }
