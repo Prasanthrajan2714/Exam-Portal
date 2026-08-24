@@ -2,6 +2,7 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { isMetafile, metafileToPng } from "./wmf";
 
 /**
  * Local-disk storage for uploaded papers and the images pulled out of them.
@@ -68,6 +69,18 @@ export async function saveExamImage(
   const dirAbsolute = resolveUploadPath(dirRelative);
   if (!dirAbsolute) throw new Error("Invalid upload path");
   await ensureDir(dirAbsolute);
+
+  // Word writes Equation Editor formulae as WMF/EMF, which no browser renders —
+  // they reached the review screen as broken images. Rasterise them here so what
+  // is stored is what an admin and a student can actually see. If the platform
+  // cannot do it, keep the original rather than losing the equation.
+  if (isMetafile(contentType)) {
+    const png = await metafileToPng(data);
+    if (png) {
+      data = png;
+      contentType = "image/png";
+    }
+  }
 
   const extension = EXTENSION_BY_MIME[contentType.toLowerCase()] ?? ".bin";
   const hash = createHash("sha1").update(data).digest("hex").slice(0, 16);
