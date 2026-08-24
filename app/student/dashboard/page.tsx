@@ -2,7 +2,7 @@ import { EmptyState, PageHeader, Stat } from "@/components/ui/primitives";
 import { sweepIfExpired } from "@/lib/attempts";
 import { requireStudent } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { canShowResult, examCardStatus } from "@/lib/exam-window";
+import { canShowResult, examCardSection, examCardStatus } from "@/lib/exam-window";
 import { formatDate, formatTime } from "@/lib/utils";
 import { ExamCard, type ExamCardData } from "./exam-card";
 
@@ -56,7 +56,11 @@ export default async function StudentDashboard() {
     const status = examCardStatus(
       exam,
       attempt
-        ? { status: attempt.status, deadlineAt: attempt.deadlineAt }
+        ? {
+            status: attempt.status,
+            deadlineAt: attempt.deadlineAt,
+            sessionClaimedAt: attempt.sessionClaimedAt,
+          }
         : null,
       (attempt?.reopenRequests.length ?? 0) > 0,
       now,
@@ -80,11 +84,12 @@ export default async function StudentDashboard() {
     };
   });
 
-  const live = cards.filter((c) =>
-    ["AVAILABLE", "IN_PROGRESS", "AWAITING_APPROVAL"].includes(c.status),
-  );
-  const upcoming = cards.filter((c) => c.status === "UPCOMING");
-  const past = cards.filter((c) => ["COMPLETED", "MISSED"].includes(c.status));
+  // Sectioning lives in examCardSection, which switches over the whole union:
+  // listing the statuses inline here is how NEEDS_REOPEN came to belong to no
+  // section at all, dropping interrupted exams off the page entirely.
+  const live = cards.filter((c) => examCardSection(c.status) === "LIVE");
+  const upcoming = cards.filter((c) => examCardSection(c.status) === "UPCOMING");
+  const past = cards.filter((c) => examCardSection(c.status) === "PAST");
 
   const completed = past.filter((c) => c.status === "COMPLETED");
 

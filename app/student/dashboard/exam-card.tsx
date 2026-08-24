@@ -55,6 +55,7 @@ const STATUS_META: Record<
   UPCOMING: { label: "Scheduled", tone: "info" },
   AVAILABLE: { label: "Available now", tone: "success" },
   IN_PROGRESS: { label: "In progress", tone: "warning" },
+  NEEDS_REOPEN: { label: "Interrupted", tone: "danger" },
   AWAITING_APPROVAL: { label: "Awaiting approval", tone: "review" },
   COMPLETED: { label: "Completed", tone: "neutral" },
   MISSED: { label: "Missed", tone: "danger" },
@@ -109,15 +110,19 @@ export function ExamCard({ exam }: { exam: ExamCardData }) {
             </Button>
           )}
 
+          {/* Continue and "ask to resume" are alternatives, never both. The exam
+              screen refuses a second entry until an admin approves one, so
+              offering Continue there only walks the student into the refusal. */}
           {exam.status === "IN_PROGRESS" && (
-            <>
-              <Button asChild>
-                <Link href={`/exam/${exam.attemptId}`}>
-                  <PlayCircle /> Continue
-                </Link>
-              </Button>
-              <ReopenDialog examId={exam.examId} examName={exam.name} />
-            </>
+            <Button asChild>
+              <Link href={`/exam/${exam.attemptId}`}>
+                <PlayCircle /> Continue
+              </Link>
+            </Button>
+          )}
+
+          {exam.status === "NEEDS_REOPEN" && (
+            <ReopenDialog examId={exam.examId} examName={exam.name} />
           )}
 
           {exam.status === "AWAITING_APPROVAL" && (

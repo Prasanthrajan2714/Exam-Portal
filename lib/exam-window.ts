@@ -116,6 +116,8 @@ export type ExamCardStatus =
   | "UPCOMING"
   | "AVAILABLE"
   | "IN_PROGRESS"
+  /** Started, then the screen was left — only an admin can let them back in. */
+  | "NEEDS_REOPEN"
   | "AWAITING_APPROVAL"
   | "COMPLETED"
   | "MISSED";
@@ -134,6 +136,12 @@ export function examCardStatus(
     | {
         status: "IN_PROGRESS" | "SUBMITTED" | "EXPIRED";
         deadlineAt: Date;
+        /**
+         * Set the first time the exam screen is opened. While it is set the
+         * exam screen refuses re-entry, so the dashboard must not offer to
+         * continue — that button only leads to the refusal.
+         */
+        sessionClaimedAt?: Date | null;
       }
     | null,
   hasPendingReopen: boolean,
@@ -147,6 +155,9 @@ export function examCardStatus(
     if (isAttemptExpired(attempt, now) || !isWindowOpen(exam, now)) {
       return "COMPLETED";
     }
+    // Approving a reopen clears sessionClaimedAt, which is what turns this back
+    // into a plain "continue".
+    if (attempt.sessionClaimedAt) return "NEEDS_REOPEN";
     return "IN_PROGRESS";
   }
 
@@ -154,6 +165,31 @@ export function examCardStatus(
   if (phase === "UPCOMING") return "UPCOMING";
   if (phase === "CLOSED") return "MISSED";
   return "AVAILABLE";
+}
+
+export type ExamCardSection = "LIVE" | "UPCOMING" | "PAST";
+
+/**
+ * Which heading a card sits under.
+ *
+ * Exhaustive on purpose: the dashboard used to list the live statuses inline,
+ * and adding NEEDS_REOPEN without touching that list dropped interrupted exams
+ * off the page entirely — the student saw nothing at all. A `switch` over the
+ * union makes the compiler refuse the next status that forgets a home.
+ */
+export function examCardSection(status: ExamCardStatus): ExamCardSection {
+  switch (status) {
+    case "AVAILABLE":
+    case "IN_PROGRESS":
+    case "NEEDS_REOPEN":
+    case "AWAITING_APPROVAL":
+      return "LIVE";
+    case "UPCOMING":
+      return "UPCOMING";
+    case "COMPLETED":
+    case "MISSED":
+      return "PAST";
+  }
 }
 
 /** Whether a result may be shown to the student yet. */

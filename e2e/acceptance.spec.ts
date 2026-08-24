@@ -330,7 +330,11 @@ test("student sits the exam, is locked out on re-entry, and resumes after approv
   await expect(page.getByText("This exam is already open")).toBeVisible();
 
   await page.getByRole("link", { name: "Back to my exams" }).click();
-  await expect(page.getByText("In progress", { exact: true })).toBeVisible();
+  await expect(page.getByText("Interrupted", { exact: true })).toBeVisible();
+
+  // Only one way forward: Continue would just walk back into the lockout, so
+  // the dashboard must not offer it here.
+  await expect(page.getByRole("link", { name: "Continue" })).toHaveCount(0);
 
   // ---------------------------------------------------------------- request
   await page.getByRole("button", { name: "Request to resume" }).click();
@@ -355,6 +359,9 @@ test("student sits the exam, is locked out on re-entry, and resumes after approv
 
   // ---------------------------------------------------------------- resume
   await page.reload();
+  // Approval cleared the claim, so it is Continue and nothing else — the
+  // student must not be asked to request a reopen they have already been given.
+  await expect(page.getByRole("button", { name: "Request to resume" })).toHaveCount(0);
   await page.getByRole("link", { name: "Continue" }).click();
   await expect(page).toHaveURL(/\/exam\//);
 
