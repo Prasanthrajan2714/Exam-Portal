@@ -14,11 +14,18 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { parseQuestionPaper } from "@/lib/docx-parser";
 import {
+  type TranslatedQuestion,
+  TranslationConfigError,
+  translateBatch,
+} from "@/lib/translate";
+import {
   clearExamUploads,
   copyExamDocument,
   copyExamImage,
   saveExamDocument,
 } from "@/lib/uploads";
+
+export type { TranslatedQuestion };
 
 /**
  * Upload → parse → preview → publish.
@@ -190,6 +197,63 @@ export async function parsePaper(
   });
 }
 
+// ---------------------------------------------------------------- translate
+
+/**
+ * One batch of a Tamil paper, not the whole thing.
+ *
+ * A paper runs to 180 questions; one request for all of them is a single point
+ * of failure minutes long, and one request per question pays the model's
+ * per-call overhead 180 times. The client walks the paper in small batches so
+ * it can show progress, and so a batch that fails costs only that batch — the
+ * questions already translated stay translated and only the rest are retried.
+ */
+const translateSchema = z.object({
+  examId: z.string().min(1),
+  questions: z
+    .array(
+      z.object({
+        index: z.number().int().min(0),
+        subjectName: z.string(),
+        text: z.string(),
+        optionA: z.string(),
+        optionB: z.string(),
+        optionC: z.string(),
+        optionD: z.string(),
+      }),
+    )
+    .min(1, "There is nothing to translate.")
+    .max(25, "Translate in smaller batches — 25 questions at a time at most."),
+});
+
+export async function translateQuestions(
+  input: z.input<typeof translateSchema>,
+): Promise<ActionResult<{ translations: TranslatedQuestion[] }>> {
+  try {
+    await requireAdmin();
+  } catch (error) {
+    return fail(authErrorMessage(error) ?? "Not allowed");
+  }
+
+  const parsed = translateSchema.safeParse(input);
+  if (!parsed.success) {
+    return fail(parsed.error.issues[0]?.message ?? "That batch could not be translated.");
+  }
+
+  try {
+    const translations = await translateBatch(parsed.data.questions);
+    return ok(`${translations.length} question(s) translated.`, { translations });
+  } catch (error) {
+    // A missing key is a setup problem, not a failure of this paper: say so in
+    // the module's own words rather than dressing it up as a translation error.
+    if (error instanceof TranslationConfigError) return fail(error.message);
+    return fail(
+      `That batch could not be translated: ${(error as Error).message} ` +
+        `The questions already translated have been kept — retry the rest.`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------- publish
 
 const publishSchema = z.object({
@@ -205,6 +269,14 @@ const publishSchema = z.object({
         optionB: z.string(),
         optionC: z.string(),
         optionD: z.string(),
+        // On a Tamil paper the four above carry the Tamil the students sit and
+        // these carry the English it came from. Optional, because an English
+        // paper never has them.
+        sourceText: z.string().nullish(),
+        sourceOptionA: z.string().nullish(),
+        sourceOptionB: z.string().nullish(),
+        sourceOptionC: z.string().nullish(),
+        sourceOptionD: z.string().nullish(),
         correctOption: z.enum(["A", "B", "C", "D"]),
         marks: z.number().nullable(),
         negativeMarks: z.number().nullable(),
@@ -249,6 +321,26 @@ export async function publishPaper(
   if (!exam) return fail("Exam not found.");
   if (exam._count.attempts > 0) {
     return fail("Students have already attempted this exam — the paper is locked.");
+  }
+
+  // The medium is the exam's, not the client's: a Tamil paper may not be saved
+  // with the English still in the columns the students read.
+  const isTamil = exam.medium === "TAMIL";
+  if (isTamil) {
+    const untranslated = data.questions.filter(
+      (q) =>
+        q.sourceText == null &&
+        q.sourceOptionA == null &&
+        q.sourceOptionB == null &&
+        q.sourceOptionC == null &&
+        q.sourceOptionD == null,
+    );
+    if (untranslated.length > 0) {
+      return fail(
+        `${untranslated.length} question(s) have not been translated yet. ` +
+          `Translate the whole paper and review the Tamil before saving it.`,
+      );
+    }
   }
 
   // Map subject names from the document onto this exam's subjects.
@@ -297,6 +389,11 @@ export async function publishPaper(
           optionB: q.optionB,
           optionC: q.optionC,
           optionD: q.optionD,
+          sourceText: isTamil ? (q.sourceText ?? null) : null,
+          sourceOptionA: isTamil ? (q.sourceOptionA ?? null) : null,
+          sourceOptionB: isTamil ? (q.sourceOptionB ?? null) : null,
+          sourceOptionC: isTamil ? (q.sourceOptionC ?? null) : null,
+          sourceOptionD: isTamil ? (q.sourceOptionD ?? null) : null,
           correctOption: q.correctOption,
           marks: q.marks,
           negativeMarks: q.negativeMarks,
@@ -469,6 +566,9 @@ export async function reusePaperForBatch(
             marksPerCorrect: source.marksPerCorrect,
             negativeMarks: source.negativeMarks,
             resultVisibility: source.resultVisibility,
+            // The copy is the same paper, so it is sat in the same language —
+            // the questions carried over below are already translated.
+            medium: source.medium,
             // Always a draft: the admin reviews the new window before students see it.
             status: "DRAFT",
             examSubjects: {
@@ -505,6 +605,11 @@ export async function reusePaperForBatch(
               optionB: question.optionB,
               optionC: question.optionC,
               optionD: question.optionD,
+              sourceText: question.sourceText,
+              sourceOptionA: question.sourceOptionA,
+              sourceOptionB: question.sourceOptionB,
+              sourceOptionC: question.sourceOptionC,
+              sourceOptionD: question.sourceOptionD,
               correctOption: question.correctOption,
               marks: question.marks,
               negativeMarks: question.negativeMarks,

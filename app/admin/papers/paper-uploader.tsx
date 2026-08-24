@@ -7,7 +7,9 @@ import {
   Download,
   FileText,
   FileSpreadsheet,
+  Languages,
   Loader2,
+  RefreshCw,
   Upload,
 } from "lucide-react";
 import Image from "next/image";
@@ -26,22 +28,42 @@ import {
   Stat,
 } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
-import { type DraftPaper, type DraftQuestion, parsePaper, publishPaper } from "./actions";
+import {
+  type DraftPaper,
+  type DraftQuestion,
+  type TranslatedQuestion,
+  parsePaper,
+  publishPaper,
+  translateQuestions,
+} from "./actions";
 
 type OptionKey = "A" | "B" | "C" | "D";
 const OPTIONS: OptionKey[] = ["A", "B", "C", "D"];
 
+/**
+ * Questions per translation request.
+ *
+ * Small enough that the admin sees the counter move every few seconds and that
+ * a failure costs at most a dozen questions; large enough that a 180-question
+ * paper is fifteen requests rather than a hundred and eighty.
+ */
+const TRANSLATION_BATCH = 12;
+
 export function PaperUploader({
   examId,
   examName,
+  medium,
   redirectTo,
 }: {
   examId: string;
   examName: string;
+  /** Tamil papers get a translation step before saving. */
+  medium: "ENGLISH" | "TAMIL";
   /** Where to go after a successful save. Defaults to `/admin/papers/<examId>`. */
   redirectTo?: string;
 }) {
   const router = useRouter();
+  const isTamil = medium === "TAMIL";
   const [draft, setDraft] = useState<DraftPaper | null>(null);
   const [questions, setQuestions] = useState<DraftQuestion[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -50,12 +72,31 @@ export function PaperUploader({
   const [pending, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
 
+  // Tamil, keyed by the question's index. Translation is slow and costs money,
+  // so nothing is translated twice: a run only ever picks up what is missing.
+  const [translations, setTranslations] = useState<Record<number, TranslatedQuestion>>({});
+  const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
+  const [batches, setBatches] = useState<{ done: number; total: number } | null>(null);
+
   const blocking = useMemo(
     () =>
       questions.filter(
         (q) => !q.correctOption || !q.text || OPTIONS.some((k) => !optionValue(q, k) && !hasImage(q, k)),
       ),
     [questions],
+  );
+
+  /** Never translated — this is what a run, or a retry, works through. */
+  const notRun = useMemo(
+    () => (isTamil ? questions.filter((q) => !translations[q.index]) : []),
+    [isTamil, questions, translations],
+  );
+
+  /** Not translated, or translated and then left blank. Blocks saving either way. */
+  const untranslated = useMemo(
+    () => (isTamil ? questions.filter((q) => tamilMissing(q, translations[q.index])) : []),
+    [isTamil, questions, translations],
   );
 
   function onParse(formData: FormData) {
@@ -69,8 +110,68 @@ export function PaperUploader({
       }
       setDraft(result.data);
       setQuestions(result.data.questions);
+      // A new document is a new paper — last upload's Tamil does not apply.
+      setTranslations({});
+      setTranslateError(null);
+      setBatches(null);
       toast.success(result.message ?? "Document read");
     });
+  }
+
+  /**
+   * Translates everything that has no Tamil yet, a batch at a time.
+   *
+   * Runs only when the admin asks for it, and stops at the first failed batch:
+   * whatever went wrong (no API key, a refused request, a timeout) is going to
+   * go wrong for the next fourteen batches too, and firing them anyway would
+   * bury the message and spend the money. Everything already translated stays,
+   * so pressing the button again resumes rather than restarts.
+   */
+  function onTranslate() {
+    const pending = notRun;
+    if (pending.length === 0) return;
+
+    const runs = chunk(pending, TRANSLATION_BATCH);
+    setTranslateError(null);
+    setTranslating(true);
+    setBatches({ done: 0, total: runs.length });
+
+    void (async () => {
+      try {
+        for (const [i, run] of runs.entries()) {
+          const result = await translateQuestions({
+            examId,
+            questions: run.map((q) => ({
+              index: q.index,
+              subjectName: q.subjectName,
+              text: q.text,
+              optionA: q.optionA,
+              optionB: q.optionB,
+              optionC: q.optionC,
+              optionD: q.optionD,
+            })),
+          });
+
+          if (!result.ok || !result.data) {
+            setTranslateError(result.message ?? "That batch could not be translated.");
+            return;
+          }
+
+          const done = result.data.translations;
+          setTranslations((prev) => {
+            const next = { ...prev };
+            for (const t of done) next[t.index] = t;
+            return next;
+          });
+          setBatches({ done: i + 1, total: runs.length });
+        }
+        toast.success(
+          `${pending.length} question(s) translated. Check the Tamil below before saving.`,
+        );
+      } finally {
+        setTranslating(false);
+      }
+    })();
   }
 
   function onPublish(publish: boolean) {
@@ -80,23 +181,39 @@ export function PaperUploader({
       );
       return;
     }
+    if (untranslated.length > 0) {
+      toast.error(
+        `${untranslated.length} question(s) are still only in English. Translate the whole paper first.`,
+      );
+      return;
+    }
     startTransition(async () => {
       const result = await publishPaper({
         examId,
         publish,
-        questions: questions.map((q) => ({
-          subjectName: q.subjectName,
-          number: q.number,
-          text: q.text,
-          optionA: q.optionA,
-          optionB: q.optionB,
-          optionC: q.optionC,
-          optionD: q.optionD,
-          correctOption: q.correctOption!,
-          marks: q.marks,
-          negativeMarks: q.negativeMarks,
-          images: q.images,
-        })),
+        questions: questions.map((q) => {
+          // A Tamil paper is stored translated — the students read one
+          // language — with the English kept underneath.
+          const tamil = isTamil ? translations[q.index] : undefined;
+          return {
+            subjectName: q.subjectName,
+            number: q.number,
+            text: tamil ? tamil.text : q.text,
+            optionA: tamil ? tamil.optionA : q.optionA,
+            optionB: tamil ? tamil.optionB : q.optionB,
+            optionC: tamil ? tamil.optionC : q.optionC,
+            optionD: tamil ? tamil.optionD : q.optionD,
+            sourceText: tamil ? q.text : null,
+            sourceOptionA: tamil ? q.optionA : null,
+            sourceOptionB: tamil ? q.optionB : null,
+            sourceOptionC: tamil ? q.optionC : null,
+            sourceOptionD: tamil ? q.optionD : null,
+            correctOption: q.correctOption!,
+            marks: q.marks,
+            negativeMarks: q.negativeMarks,
+            images: q.images,
+          };
+        }),
       });
       if (!result.ok) {
         toast.error(result.message ?? "Could not save the paper.");
@@ -112,6 +229,14 @@ export function PaperUploader({
     setQuestions((prev) =>
       prev.map((q) => (q.index === index ? { ...q, ...patch } : q)),
     );
+  }
+
+  function updateTranslation(index: number, patch: Partial<TranslatedQuestion>) {
+    setTranslations((prev) => {
+      const current = prev[index];
+      if (!current) return prev;
+      return { ...prev, [index]: { ...current, ...patch } };
+    });
   }
 
   // ------------------------------------------------------------- upload step
@@ -157,6 +282,9 @@ export function PaperUploader({
               <p className="text-xs text-muted-foreground">
                 Nothing is saved yet. You will review every question that was
                 understood before it goes anywhere near your students.
+                {isTamil &&
+                  " This paper is set in Tamil: upload the English document, then" +
+                    " translate and check the Tamil in the next step."}
               </p>
             </form>
           </CardBody>
@@ -209,7 +337,7 @@ export function PaperUploader({
   // ------------------------------------------------------------- review step
   return (
     <>
-      <div className="mb-4 grid gap-4 sm:grid-cols-3">
+      <div className={cn("mb-4 grid gap-4 sm:grid-cols-3", isTamil && "lg:grid-cols-4")}>
         <Stat label="Questions read" value={questions.length} />
         <Stat
           label="Ready to publish"
@@ -221,7 +349,26 @@ export function PaperUploader({
           value={blocking.length}
           tone={blocking.length > 0 ? "danger" : undefined}
         />
+        {isTamil && (
+          <Stat
+            label="Translated"
+            value={`${questions.length - untranslated.length} / ${questions.length}`}
+            tone={untranslated.length > 0 ? "danger" : "success"}
+            icon={<Languages />}
+          />
+        )}
       </div>
+
+      {isTamil && (
+        <TranslationPanel
+          total={questions.length}
+          remaining={notRun.length}
+          translating={translating}
+          batches={batches}
+          error={translateError}
+          onTranslate={onTranslate}
+        />
+      )}
 
       {/* Reconciliation against the exam's declared structure */}
       <Card className="mb-4">
@@ -278,21 +425,36 @@ export function PaperUploader({
           <QuestionEditor
             key={q.index}
             question={q}
+            showTamil={isTamil}
+            translation={translations[q.index]}
             onChange={(patch) => update(q.index, patch)}
+            onTranslationChange={(patch) => updateTranslation(q.index, patch)}
           />
         ))}
       </div>
 
       {/* ------------------------------------------------------- publish bar */}
       <Card className="sticky bottom-4 mt-6 shadow-lg">
-        <CardBody className="flex flex-wrap items-center justify-end gap-4">
+        <CardBody className="flex flex-wrap items-center justify-between gap-4">
+          {untranslated.length > 0 ? (
+            <p className="text-sm text-danger">
+              {untranslated.length} of {questions.length} question(s) have no Tamil,
+              or have a Tamil field left blank. The paper cannot be saved until
+              every one is complete.
+            </p>
+          ) : (
+            <span />
+          )}
           <div className="flex flex-wrap gap-2">
             <Button
               variant="secondary"
-              disabled={pending}
+              disabled={pending || translating}
               onClick={() => {
                 setDraft(null);
                 setQuestions([]);
+                setTranslations({});
+                setTranslateError(null);
+                setBatches(null);
                 setPaperName("");
                 setKeyName("");
                 formRef.current?.reset();
@@ -300,11 +462,17 @@ export function PaperUploader({
             >
               <ArrowLeft /> Upload different files
             </Button>
-            <Button variant="secondary" disabled={pending} onClick={() => onPublish(false)}>
+            <Button
+              variant="secondary"
+              disabled={pending || translating || untranslated.length > 0}
+              onClick={() => onPublish(false)}
+            >
               Save as draft
             </Button>
             <Button
-              disabled={pending || blocking.length > 0}
+              disabled={
+                pending || translating || blocking.length > 0 || untranslated.length > 0
+              }
               onClick={() => onPublish(true)}
             >
               {pending ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
@@ -319,6 +487,120 @@ export function PaperUploader({
 
 // ---------------------------------------------------------------- pieces
 
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/**
+ * The translate step. Deliberately a button and not something that happens on
+ * its own: a paper is a few minutes of the model's time, and it should be the
+ * admin who decides when to spend it.
+ */
+function TranslationPanel({
+  total,
+  remaining,
+  translating,
+  batches,
+  error,
+  onTranslate,
+}: {
+  total: number;
+  remaining: number;
+  translating: boolean;
+  batches: { done: number; total: number } | null;
+  error: string | null;
+  onTranslate: () => void;
+}) {
+  const translated = total - remaining;
+  const started = translated > 0;
+  const percent = total === 0 ? 0 : Math.round((translated / total) * 100);
+
+  return (
+    <Card className="mb-4">
+      <CardHeader className="flex flex-wrap items-center justify-between gap-2">
+        <CardTitle>Tamil translation</CardTitle>
+        <Badge tone={remaining === 0 ? "success" : started ? "warning" : "neutral"}>
+          {remaining === 0 ? "All questions translated" : `${remaining} to go`}
+        </Badge>
+      </CardHeader>
+      <CardBody className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Technical terms come from this subject&apos;s glossary and are used
+          exactly as the board writes them; the rest of each sentence is
+          translated. Numbers, formulae and the order of the options are left
+          alone. Check every question below before saving — you can edit the
+          Tamil directly.
+        </p>
+
+        {(translating || started) && (
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                {translated} of {total} translated
+                {translating && batches
+                  ? ` · batch ${Math.min(batches.done + 1, batches.total)} of ${batches.total}`
+                  : ""}
+              </span>
+              <span className="tabular-nums">{percent}%</span>
+            </div>
+            <div
+              className="h-2 overflow-hidden rounded-full bg-surface-muted"
+              role="progressbar"
+              aria-valuenow={translated}
+              aria-valuemin={0}
+              aria-valuemax={total}
+              aria-label="Questions translated"
+            >
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-300"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <Alert tone="danger" title="The translation stopped">
+            {error}
+            {remaining > 0 && (
+              <span className="mt-1 block text-xs">
+                The {translated} question(s) already translated have been kept.
+                Fix the problem and retry the remaining {remaining}.
+              </span>
+            )}
+          </Alert>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button disabled={translating || remaining === 0} onClick={onTranslate}>
+            {translating ? (
+              <Loader2 className="animate-spin" />
+            ) : started ? (
+              <RefreshCw />
+            ) : (
+              <Languages />
+            )}
+            {translating
+              ? "Translating…"
+              : remaining === 0
+                ? "Everything is translated"
+                : started
+                  ? `Retry the remaining ${remaining}`
+                  : `Translate ${total} question(s) to Tamil`}
+          </Button>
+          {translating && (
+            <span className="text-xs text-muted-foreground">
+              This takes a few minutes for a full paper — leave this page open.
+            </span>
+          )}
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
 function optionValue(q: DraftQuestion, key: OptionKey): string {
   return key === "A" ? q.optionA : key === "B" ? q.optionB : key === "C" ? q.optionC : q.optionD;
 }
@@ -329,12 +611,19 @@ function hasImage(q: DraftQuestion, target: "STEM" | OptionKey): boolean {
 
 function QuestionEditor({
   question,
+  showTamil,
+  translation,
   onChange,
+  onTranslationChange,
 }: {
   question: DraftQuestion;
+  showTamil: boolean;
+  translation?: TranslatedQuestion;
   onChange: (patch: Partial<DraftQuestion>) => void;
+  onTranslationChange: (patch: Partial<TranslatedQuestion>) => void;
 }) {
   const missingAnswer = !question.correctOption;
+  const needsTamil = showTamil && tamilMissing(question, translation);
   const hasProblem =
     missingAnswer ||
     !question.text ||
@@ -343,7 +632,7 @@ function QuestionEditor({
   const stemImages = question.images.filter((i) => i.target === "STEM");
 
   return (
-    <Card className={cn(hasProblem && "border-danger")}>
+    <Card className={cn((hasProblem || needsTamil) && "border-danger")}>
       <CardHeader className="flex flex-wrap items-center justify-between gap-2 py-3">
         <div className="flex items-center gap-2">
           <Badge tone={question.subjectName ? "primary" : "danger"}>
@@ -354,6 +643,10 @@ function QuestionEditor({
         {hasProblem ? (
           <span className="flex items-center gap-1.5 text-xs font-medium text-danger">
             <AlertTriangle className="size-3.5" /> Needs attention
+          </span>
+        ) : needsTamil ? (
+          <span className="flex items-center gap-1.5 text-xs font-medium text-danger">
+            <Languages className="size-3.5" /> Not translated
           </span>
         ) : (
           <span className="flex items-center gap-1.5 text-xs font-medium text-success">
@@ -367,7 +660,10 @@ function QuestionEditor({
           <p className="text-xs text-danger">{question.issues.join(" · ")}</p>
         )}
 
-        <Field label="Question" htmlFor={`q-${question.index}`}>
+        <Field
+          label={showTamil ? "Question (English original)" : "Question"}
+          htmlFor={`q-${question.index}`}
+        >
           <Textarea
             id={`q-${question.index}`}
             value={question.text}
@@ -428,6 +724,14 @@ function QuestionEditor({
           })}
         </div>
 
+        {showTamil && (
+          <TamilReview
+            index={question.index}
+            translation={translation}
+            onChange={onTranslationChange}
+          />
+        )}
+
         {missingAnswer && (
           <p className="text-xs font-medium text-danger">
             Choose which option is correct — this question has no answer key entry.
@@ -436,6 +740,101 @@ function QuestionEditor({
       </CardBody>
     </Card>
   );
+}
+
+/**
+ * The Tamil, under the English it came from, and editable.
+ *
+ * This is what actually reaches the students, so it gets the same treatment the
+ * parsed English gets: every field can be corrected here. The glossary terms
+ * that were pinned for this question are listed so the admin can see which
+ * terminology was enforced rather than having to infer it.
+ */
+function TamilReview({
+  index,
+  translation,
+  onChange,
+}: {
+  index: number;
+  translation?: TranslatedQuestion;
+  onChange: (patch: Partial<TranslatedQuestion>) => void;
+}) {
+  if (!translation) {
+    return (
+      <div className="rounded-[var(--radius-app)] border border-dashed border-danger/60 bg-danger-soft/20 px-3 py-2 text-xs text-danger">
+        No Tamil yet. Run the translation above — this paper cannot be saved
+        while any question is still only in English.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 rounded-[var(--radius-app)] border border-primary/40 bg-primary-soft/20 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-primary-ink">
+          தமிழ் · what the students will read
+        </span>
+        <span className="text-xs text-muted-foreground">Edit anything that reads wrong</span>
+      </div>
+
+      <Field label="Question (Tamil)" htmlFor={`ta-${index}`}>
+        <Textarea
+          id={`ta-${index}`}
+          value={translation.text}
+          onChange={(e) => onChange({ text: e.target.value })}
+          className={cn(!translation.text && "border-danger")}
+        />
+      </Field>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        {OPTIONS.map((key) => {
+          const value = tamilOption(translation, key);
+          return (
+            <Field key={key} label={`Option ${key} (Tamil)`} htmlFor={`ta-${index}-${key}`}>
+              <Input
+                id={`ta-${index}-${key}`}
+                value={value}
+                onChange={(e) =>
+                  onChange({ [`option${key}`]: e.target.value } as Partial<TranslatedQuestion>)
+                }
+                className={cn("h-8 text-sm", !value && "border-danger")}
+              />
+            </Field>
+          );
+        })}
+      </div>
+
+      {translation.termsUsed.length > 0 && (
+        <div>
+          <p className="mb-1 text-xs text-muted-foreground">
+            Glossary terms used ({translation.termsUsed.length}):
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {translation.termsUsed.map((t) => (
+              <Badge key={t.term} tone="info">
+                {t.term} → {t.tamil}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function tamilOption(t: TranslatedQuestion, key: OptionKey): string {
+  return key === "A" ? t.optionA : key === "B" ? t.optionB : key === "C" ? t.optionC : t.optionD;
+}
+
+/**
+ * A question still needs Tamil if it was never translated, or if a field the
+ * English fills has been left blank — an emptied option would reach a student
+ * as a missing choice, which is worse than an untranslated one.
+ */
+function tamilMissing(q: DraftQuestion, t: TranslatedQuestion | undefined): boolean {
+  if (!t) return true;
+  if (q.text.trim() && !t.text.trim()) return true;
+  return OPTIONS.some((k) => optionValue(q, k).trim() && !tamilOption(t, k).trim());
 }
 
 function ImageThumb({ path, small }: { path: string; small?: boolean }) {

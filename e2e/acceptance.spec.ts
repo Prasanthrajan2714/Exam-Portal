@@ -229,7 +229,8 @@ test("admin creates an exam and uploads its paper without leaving Create Exam", 
   ctx.examId = page.url().split("/").pop()!;
   expect(ctx.examId.length).toBeGreaterThan(5);
   await expect(page.getByRole("heading", { name: EXAM })).toBeVisible();
-  await expect(page.getByText("Live now")).toBeVisible();
+  // "Active" everywhere now — the exam pages share one status definition.
+  await expect(page.getByText("Active", { exact: true })).toBeVisible();
   await expect(page.getByText("4 / 4")).toBeVisible();
 });
 

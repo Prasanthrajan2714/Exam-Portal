@@ -29,6 +29,9 @@ const examSchema = z
     marksPerCorrect: z.number().min(0.25, "Marks per correct answer must be positive").max(100),
     negativeMarks: z.number().min(0, "Negative marks cannot be less than zero").max(100),
     resultVisibility: z.enum(["IMMEDIATE", "AFTER_WINDOW"]),
+    // The language the paper is sat in. A Tamil exam is translated once, at
+    // upload — never per student, never at exam time.
+    medium: z.enum(["ENGLISH", "TAMIL"]),
     subjects: z.array(subjectEntry).min(1, "Select at least one subject"),
   })
   .superRefine((data, ctx) => {
@@ -74,6 +77,7 @@ function parseForm(formData: FormData) {
     marksPerCorrect: Number(formData.get("marksPerCorrect")),
     negativeMarks: Number(formData.get("negativeMarks")),
     resultVisibility: formData.get("resultVisibility"),
+    medium: formData.get("medium"),
     subjects,
   });
 }
@@ -113,6 +117,7 @@ export async function createExam(
       marksPerCorrect: input.marksPerCorrect,
       negativeMarks: input.negativeMarks,
       resultVisibility: input.resultVisibility,
+      medium: input.medium,
       status: "DRAFT",
       examSubjects: {
         create: input.subjects.map((s, index) => ({
@@ -163,6 +168,19 @@ export async function updateExam(
     );
   }
 
+  // The stored questions are already written in the exam's medium — a Tamil
+  // paper holds Tamil text. Flipping the medium underneath them would leave the
+  // exam claiming a language its own questions are not in.
+  if (input.medium !== exam.medium && exam._count.questions > 0) {
+    return fail(
+      `The question paper is already uploaded in ${
+        exam.medium === "TAMIL" ? "Tamil" : "English"
+      }, so the medium can no longer be changed. Remove or replace the paper ` +
+        `first, then set the medium.`,
+      { medium: "Remove the uploaded paper before changing the medium." },
+    );
+  }
+
   const startsAt = new Date(input.startsAt);
 
   // Subject counts can only be edited while no questions exist; once a paper is
@@ -196,6 +214,7 @@ export async function updateExam(
         marksPerCorrect: input.marksPerCorrect,
         negativeMarks: input.negativeMarks,
         resultVisibility: input.resultVisibility,
+        medium: input.medium,
       },
     });
   });

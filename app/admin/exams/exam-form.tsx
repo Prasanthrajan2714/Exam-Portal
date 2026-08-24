@@ -40,6 +40,7 @@ export type ExamInitialValues = {
   marksPerCorrect: number;
   negativeMarks: number;
   resultVisibility: "IMMEDIATE" | "AFTER_WINDOW";
+  medium: "ENGLISH" | "TAMIL";
   subjects: { subjectId: string; questionCount: number }[];
   subjectsLocked: boolean;
 };
@@ -100,6 +101,9 @@ export function ExamForm({
   const [negativeMarks, setNegativeMarks] = useState(String(initial?.negativeMarks ?? 1));
   const [resultVisibility, setResultVisibility] = useState<"IMMEDIATE" | "AFTER_WINDOW">(
     initial?.resultVisibility ?? "IMMEDIATE",
+  );
+  const [medium, setMedium] = useState<"ENGLISH" | "TAMIL">(
+    initial?.medium ?? "ENGLISH",
   );
 
   const selected = useMemo(
@@ -201,6 +205,9 @@ export function ExamForm({
               {startTime} – {endTime}
             </SummaryRow>
             <SummaryRow label="Duration">{duration} minutes</SummaryRow>
+            <SummaryRow label="Medium">
+              {medium === "TAMIL" ? "Tamil" : "English"}
+            </SummaryRow>
             <SummaryRow label="Marking">
               +{marksPerCorrect} correct · −{negativeMarks} wrong · 0 unanswered
             </SummaryRow>
@@ -223,6 +230,7 @@ export function ExamForm({
         <PaperUploader
           examId={createdExamId}
           examName={name}
+          medium={medium}
           redirectTo={examPath}
         />
       </>
@@ -496,9 +504,35 @@ export function ExamForm({
       {/* ---------------------------------------------------------- marking */}
       <Card>
         <CardHeader>
-          <CardTitle>Marking and results</CardTitle>
+          <CardTitle>Medium, marking and results</CardTitle>
         </CardHeader>
         <CardBody className="grid gap-4 sm:grid-cols-3">
+          <Field
+            label="Medium"
+            htmlFor="medium"
+            required
+            error={state.fieldErrors?.medium}
+            hint={
+              subjectsLocked
+                ? "The paper is already uploaded in this medium. Delete the paper to change it."
+                : "Choose Tamil and the question paper is translated into Tamil as you upload it, with technical terms taken from the board's subject glossary. English is kept exactly as written."
+            }
+          >
+            <Select
+              id="medium"
+              // A disabled control posts nothing, so the hidden input below
+              // carries the unchanged value through instead.
+              name={subjectsLocked ? undefined : "medium"}
+              disabled={subjectsLocked}
+              value={medium}
+              onChange={(e) => setMedium(e.target.value as "ENGLISH" | "TAMIL")}
+            >
+              <option value="ENGLISH">English</option>
+              <option value="TAMIL">Tamil</option>
+            </Select>
+            {subjectsLocked && <input type="hidden" name="medium" value={medium} />}
+          </Field>
+
           <Field
             label="Marks per correct answer"
             htmlFor="marksPerCorrect"

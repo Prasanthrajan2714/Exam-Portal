@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/primitives";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { examPhase } from "@/lib/exam-window";
+import { adminExamStatus } from "@/lib/exam-window";
 import { formatDate, formatTime } from "@/lib/utils";
 import { PaperUploader } from "../../papers/paper-uploader";
 import { deleteExam, publishExam, unpublishExam } from "../actions";
@@ -63,7 +63,7 @@ export default async function ExamDetailPage({
   );
 
   const expected = exam.examSubjects.reduce((sum, s) => sum + s.questionCount, 0);
-  const phase = examPhase(exam);
+  const status = adminExamStatus({ ...exam, questionCount: exam._count.questions });
   const published = exam.status === "PUBLISHED";
   const paperComplete = exam._count.questions === expected && expected > 0;
 
@@ -84,19 +84,22 @@ export default async function ExamDetailPage({
       />
 
       <div className="mb-6 flex flex-wrap items-center gap-2">
-        {!published ? (
-          <Badge tone="neutral">Draft — not visible to students</Badge>
-        ) : phase === "OPEN" ? (
-          <Badge tone="success">Live now</Badge>
-        ) : phase === "UPCOMING" ? (
-          <Badge tone="info">Scheduled</Badge>
-        ) : (
-          <Badge tone="neutral">Window closed</Badge>
-        )}
+        {/* Same wording as the exams list and the dashboard — three pages
+            naming the same state differently is how "Live now" survived here. */}
+        <Badge tone={status.tone}>
+          {status.label === "Draft" ? "Draft — not visible to students" : status.label}
+        </Badge>
         {exam.resultVisibility === "IMMEDIATE" ? (
           <Badge tone="primary">Results shown immediately</Badge>
         ) : (
           <Badge tone="primary">Results after the window closes</Badge>
+        )}
+        {/* Shown for English too: an absent badge would be ambiguous next to the
+            two badges beside it, which always state their setting. */}
+        {exam.medium === "TAMIL" ? (
+          <Badge tone="info">Tamil medium</Badge>
+        ) : (
+          <Badge tone="neutral">English medium</Badge>
         )}
       </div>
 
@@ -200,6 +203,7 @@ export default async function ExamDetailPage({
           <PaperUploader
             examId={exam.id}
             examName={exam.name}
+            medium={exam.medium}
             redirectTo={`/admin/exams/${exam.id}`}
           />
         </section>

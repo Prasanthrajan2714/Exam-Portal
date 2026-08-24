@@ -30,6 +30,11 @@ enum ExamStatus {
   PUBLISHED
 }
 
+enum ExamMedium {
+  ENGLISH
+  TAMIL
+}
+
 enum ResultVisibility {
   IMMEDIATE
   AFTER_WINDOW
@@ -150,6 +155,9 @@ model Exam {
   negativeMarks    Float            @default(1)
   resultVisibility ResultVisibility @default(IMMEDIATE)
   status           ExamStatus       @default(DRAFT)
+  /// The language the paper is sat in. A Tamil paper is translated once, at
+  /// upload, and stored translated — students read one language, not a toggle.
+  medium           ExamMedium       @default(ENGLISH)
 
   questionPaperFile String?
   answerKeyFile     String?
@@ -195,6 +203,16 @@ model Question {
   optionC       String
   optionD       String
   correctOption OptionKey
+
+  /// On a Tamil paper the columns above hold the Tamil the students sit, and
+  /// these hold the English it was translated from — kept so a term can be
+  /// checked or the paper re-translated without re-reading the Word document.
+  /// Null on an English paper.
+  sourceText    String?
+  sourceOptionA String?
+  sourceOptionB String?
+  sourceOptionC String?
+  sourceOptionD String?
 
   // Per-question overrides; fall back to the exam defaults when null.
   marks         Float?

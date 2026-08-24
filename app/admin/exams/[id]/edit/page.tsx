@@ -82,6 +82,7 @@ export default async function EditExamPage({
           marksPerCorrect: exam.marksPerCorrect,
           negativeMarks: exam.negativeMarks,
           resultVisibility: exam.resultVisibility,
+          medium: exam.medium,
           subjects: exam.examSubjects.map((s) => ({
             subjectId: s.subjectId,
             questionCount: s.questionCount,

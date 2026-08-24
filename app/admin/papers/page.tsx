@@ -180,6 +180,7 @@ export default async function PapersPage({
                     <Th>Paper</Th>
                     <Th>Batch</Th>
                     <Th>Date</Th>
+                    <Th>Medium</Th>
                     <Th>Questions</Th>
                     <Th>Status</Th>
                     <Th className="text-right">Action</Th>
@@ -214,6 +215,15 @@ export default async function PapersPage({
                         </Td>
                         <Td className="text-muted-foreground">
                           {formatDate(exam.startsAt)}
+                        </Td>
+                        {/* The language the questions are stored in — a Tamil
+                            paper reads nothing like its English sibling. */}
+                        <Td>
+                          {exam.medium === "TAMIL" ? (
+                            <Badge tone="info">Tamil</Badge>
+                          ) : (
+                            <Badge tone="neutral">English</Badge>
+                          )}
                         </Td>
                         <Td>
                           {exam._count.questions === 0 ? (
