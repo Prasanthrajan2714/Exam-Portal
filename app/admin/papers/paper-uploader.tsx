@@ -818,7 +818,7 @@ function TamilReview({
               key={key}
               label={`Option ${key} (Tamil)`}
               htmlFor={`ta-${index}-${key}`}
-              hint={passthrough ? "Numbers only — kept as they are" : undefined}
+              hint={passthrough ? "Nothing to translate — kept as it is" : undefined}
               error={
                 stillEnglish(source, value)
                   ? "Still in English"

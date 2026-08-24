@@ -11,14 +11,26 @@
  */
 
 /**
- * Does this contain an actual word, as opposed to a quantity?
+ * Does this contain an actual word, as opposed to a quantity or a formula?
  *
- * Testing for "any letter" is not enough — "9.6 × 10⁻² m" and "kg m s⁻¹" are
- * all letters and all untranslatable. Unit symbols run to one or two characters,
- * so a run of three or more is what marks real prose ("pascal", "erg").
+ * "Any letter" is far too loose — "9.6 × 10⁻² m" and "kg m s⁻¹" are all letters
+ * and all untranslatable. Length alone is not enough either: "PCl₃" and "NaOH"
+ * clear three letters and must stay exactly as they are, and flagging them as
+ * untranslated puts a red error on every chemical formula in a chemistry paper.
+ *
+ * What separates prose from a symbol is its shape. English words are lowercase,
+ * or capitalised and then lowercase. Element symbols and abbreviations carry
+ * capitals inside them — PCl, NaOH, KMnO₄, DNA, ADP — so a run with an internal
+ * capital is chemistry, not language.
  */
 export function hasWords(value: string): boolean {
-  return /\p{L}{3,}/u.test(value);
+  const runs = value.match(/\p{L}{3,}/gu);
+  if (!runs) return false;
+  return runs.some((run) => {
+    const rest = run.slice(1);
+    // all lowercase, or one leading capital followed by lowercase
+    return rest === rest.toLowerCase();
+  });
 }
 
 /** A quantity with nothing translatable in it: identical Tamil is correct here. */

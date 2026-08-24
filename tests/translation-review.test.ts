@@ -25,6 +25,16 @@ describe("nothingToTranslate", () => {
     expect(nothingToTranslate("−273.15")).toBe(true);
   });
 
+  it("is true for a chemical formula, which must stay exactly as it is", () => {
+    // Three-letters-or-more is not enough on its own: these all clear it and
+    // none of them is language. Internal capitals are the tell.
+    expect(nothingToTranslate("PCl₃")).toBe(true);
+    expect(nothingToTranslate("NaOH")).toBe(true);
+    expect(nothingToTranslate("H₂SO₄")).toBe(true);
+    expect(nothingToTranslate("KMnO₄")).toBe(true);
+    expect(nothingToTranslate("DNA")).toBe(true);
+  });
+
   it("is false once there are words to translate", () => {
     expect(nothingToTranslate("pascal")).toBe(false);
     expect(nothingToTranslate("kg m s⁻¹")).toBe(true); // unit symbols, not words
@@ -59,10 +69,17 @@ describe("stillEnglish", () => {
     expect(stillEnglish("", "பாஸ்கல்")).toBe(false);
   });
 
-  it("flags a term the board keeps in English only when it stands alone as a stem", () => {
-    // "ADP" identical on both sides is correct — it is a kept-in-English term —
-    // but it has letters and no Tamil, so the screen marks it for a human look
-    // rather than silently accepting it.
-    expect(stillEnglish("ADP", "ADP")).toBe(true);
+  it("does not flag a formula or an abbreviation the board keeps in English", () => {
+    // A chemistry paper is full of these. Marking them "still in English" put a
+    // red error on every formula, which is exactly what a failed translation
+    // looks like.
+    expect(stillEnglish("PCl₃", "PCl₃")).toBe(false);
+    expect(stillEnglish("NaOH", "NaOH")).toBe(false);
+    expect(stillEnglish("ADP", "ADP")).toBe(false);
+  });
+
+  it("still flags real prose that came back untranslated", () => {
+    expect(stillEnglish("none of these", "none of these")).toBe(true);
+    expect(stillEnglish("oxidation", "oxidation")).toBe(true);
   });
 });
