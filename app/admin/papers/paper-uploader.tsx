@@ -27,6 +27,7 @@ import {
   CardTitle,
   Stat,
 } from "@/components/ui/primitives";
+import { nothingToTranslate, stillEnglish } from "@/lib/translation-review";
 import { cn } from "@/lib/utils";
 import {
   type DraftPaper,
@@ -727,6 +728,7 @@ function QuestionEditor({
         {showTamil && (
           <TamilReview
             index={question.index}
+            english={question}
             translation={translation}
             onChange={onTranslationChange}
           />
@@ -750,12 +752,19 @@ function QuestionEditor({
  * that were pinned for this question are listed so the admin can see which
  * terminology was enforced rather than having to infer it.
  */
+/**
+ * An option that is only digits, symbols and units has nothing to translate —
+ * "9.6 × 10⁻² m" is the same in every language. Identical Tamil there is
+ * correct, but it reads as a failure unless the screen says so.
+ */
 function TamilReview({
   index,
+  english,
   translation,
   onChange,
 }: {
   index: number;
+  english: DraftQuestion;
   translation?: TranslatedQuestion;
   onChange: (patch: Partial<TranslatedQuestion>) => void;
 }) {
@@ -777,27 +786,56 @@ function TamilReview({
         <span className="text-xs text-muted-foreground">Edit anything that reads wrong</span>
       </div>
 
-      <Field label="Question (Tamil)" htmlFor={`ta-${index}`}>
+      <Field
+        label="Question (Tamil)"
+        htmlFor={`ta-${index}`}
+        error={
+          stillEnglish(english.text, translation.text)
+            ? "This came back in English. Retranslate the paper or write the Tamil yourself."
+            : undefined
+        }
+      >
         <Textarea
           id={`ta-${index}`}
           value={translation.text}
           onChange={(e) => onChange({ text: e.target.value })}
-          className={cn(!translation.text && "border-danger")}
+          className={cn(
+            (!translation.text || stillEnglish(english.text, translation.text)) &&
+              "border-danger",
+          )}
         />
       </Field>
 
       <div className="grid gap-2 sm:grid-cols-2">
         {OPTIONS.map((key) => {
           const value = tamilOption(translation, key);
+          const source = optionValue(english, key);
+          // Numbers and units are identical in both languages, so an unchanged
+          // option here is the correct result — say so, or it reads as a miss.
+          const passthrough = nothingToTranslate(source) && value.trim() === source.trim();
           return (
-            <Field key={key} label={`Option ${key} (Tamil)`} htmlFor={`ta-${index}-${key}`}>
+            <Field
+              key={key}
+              label={`Option ${key} (Tamil)`}
+              htmlFor={`ta-${index}-${key}`}
+              hint={passthrough ? "Numbers only — kept as they are" : undefined}
+              error={
+                stillEnglish(source, value)
+                  ? "Still in English"
+                  : undefined
+              }
+            >
               <Input
                 id={`ta-${index}-${key}`}
                 value={value}
                 onChange={(e) =>
                   onChange({ [`option${key}`]: e.target.value } as Partial<TranslatedQuestion>)
                 }
-                className={cn("h-8 text-sm", !value && "border-danger")}
+                className={cn(
+                  "h-8 text-sm",
+                  !value && "border-danger",
+                  stillEnglish(source, value) && "border-danger",
+                )}
               />
             </Field>
           );
