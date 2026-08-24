@@ -77,6 +77,27 @@ describe("matchTerms", () => {
     expect(hits.map((h) => h.term)).not.toContain("arc");
   });
 
+  it("ignores glossary entries that are ordinary English words", async () => {
+    // Physics lists NOT/AND/OR as logic operators and "on" as a closed switch.
+    // In a sentence they are just English; pinning them put a literal "(NOT)"
+    // into a real translation.
+    const phy = await loadGlossary("Physics");
+    const hits = matchTerms(
+      "Which of the following is NOT a unit of energy, on the given scale?",
+      phy,
+    ).map((h) => h.term);
+    expect(hits).not.toContain("NOT");
+    expect(hits).not.toContain("on");
+    // The real terms in that sentence still come through.
+    expect(hits.some((h) => h === "energy" || h === "unit")).toBe(true);
+  });
+
+  it("still pins the logic gate when the question is actually about one", async () => {
+    const phy = await loadGlossary("Physics");
+    const hits = matchTerms("Draw the truth table for a NOT gate.", phy).map((h) => h.term);
+    expect(hits).toContain("NOT gate");
+  });
+
   it("returns nothing for text with no technical terms", async () => {
     const maths = await loadGlossary("Mathematics");
     expect(matchTerms("Which of the following is correct?", maths).length).toBe(0);

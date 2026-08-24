@@ -86,6 +86,47 @@ export async function loadGlossary(subject: string): Promise<GlossaryEntry[]> {
   return entries;
 }
 
+/**
+ * Ordinary English words that also exist as glossary entries. Physics lists
+ * "NOT", "AND" and "OR" as logic operators and "on" as a closed switch;
+ * Chemistry lists "one". In a sentence they are just English, and pinning them
+ * actively damages the translation — a paper asking which unit is "NOT" energy
+ * came back with a literal "(NOT)" spliced into the Tamil.
+ *
+ * The logic operators are safe to drop because the real thing is a longer entry
+ * — "NOT gate", "AND gate", "OR gate" — which still matches when a question is
+ * genuinely about gates. Terms that are technical in their own right, like the
+ * mathematical "set", are deliberately not listed here.
+ */
+const STOPWORDS = new Set([
+  "not",
+  "and",
+  "or",
+  "on",
+  "one",
+  "two",
+  "if",
+  "then",
+  "is",
+  "are",
+  "the",
+  "of",
+  "to",
+  "in",
+  "at",
+  "as",
+  "by",
+  "for",
+  "no",
+  "so",
+  "do",
+  "be",
+  "all",
+  "any",
+  "can",
+  "may",
+]);
+
 /** Terms are matched on word boundaries so "arc" does not fire inside "search". */
 function boundaryAt(haystack: string, index: number, length: number): boolean {
   const before = index === 0 ? "" : haystack[index - 1];
@@ -126,6 +167,7 @@ export function matchTerms(text: string, entries: GlossaryEntry[]): GlossaryEntr
   const spans: Span[] = [];
 
   for (const entry of entries) {
+    if (STOPWORDS.has(entry.term.trim().toLowerCase())) continue;
     for (const alias of searchAliases(entry.term)) {
       const needle = alias.toLowerCase();
       if (needle.length < 3) continue; // single letters match everywhere

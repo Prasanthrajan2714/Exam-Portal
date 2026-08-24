@@ -82,13 +82,34 @@ const TOOL: Anthropic.Tool = {
 };
 
 function renderQuestion(q: TranslatableQuestion, terms: GlossaryEntry[]): string {
-  const glossary = terms.length
-    ? terms.map((t) => `  - "${t.term}" -> ${t.tamil}`).join("\n")
-    : "  (no approved terms found in this question)";
+  // An entry whose Tamil is the same as its English — "ADP", "NAND", "DDT" —
+  // means the board keeps it in English. Written as an arrow mapping the model
+  // reads it as a token to place somewhere; listed separately it reads as
+  // "leave this alone", which is what it means.
+  const translated = terms.filter(
+    (t) => t.tamil.trim().toLowerCase() !== t.term.trim().toLowerCase(),
+  );
+  const keepAsIs = terms.filter(
+    (t) => t.tamil.trim().toLowerCase() === t.term.trim().toLowerCase(),
+  );
+
+  const lines = [`<question index="${q.index}" subject="${q.subjectName}">`];
+  lines.push(
+    translated.length
+      ? `Approved terminology (use this Tamil exactly):\n${translated
+          .map((t) => `  - "${t.term}" -> ${t.tamil}`)
+          .join("\n")}`
+      : `Approved terminology (use this Tamil exactly):\n  (none found in this question)`,
+  );
+  if (keepAsIs.length) {
+    lines.push(
+      `Keep these in English exactly as they appear, do not transliterate them: ${keepAsIs
+        .map((t) => t.term)
+        .join(", ")}`,
+    );
+  }
   return [
-    `<question index="${q.index}" subject="${q.subjectName}">`,
-    `Approved terminology (use these exactly):`,
-    glossary,
+    ...lines,
     `Stem: ${q.text}`,
     `A: ${q.optionA}`,
     `B: ${q.optionB}`,
