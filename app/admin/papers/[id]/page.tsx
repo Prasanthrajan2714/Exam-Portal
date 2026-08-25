@@ -5,6 +5,7 @@ import {
   Clock,
   FilePlus2,
   ImageIcon,
+  Lightbulb,
   Pencil,
   Scale,
   Send,
@@ -30,11 +31,12 @@ import {
 } from "@/components/ui/primitives";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { disagreesWithKey } from "@/lib/solutions";
+import { disagreesWithKey, solutionsConfigured } from "@/lib/solutions";
 import { formatDate, formatTime } from "@/lib/utils";
 import { publishExam } from "@/app/admin/exams/actions";
 import { ReusePaperDialog } from "./reuse-form";
 import { SettleQuestion } from "./settle-form";
+import { SolvePanel } from "./solve-panel";
 
 export const metadata = { title: "Question paper · Admin" };
 
@@ -84,6 +86,26 @@ export default async function PaperPage({
   const locked = exam._count.attempts > 0;
   const paperComplete = exam._count.questions === expected && expected > 0;
 
+  // Questions never worked out at all. A paper saved as a draft before its
+  // solutions were run arrives here, and until now had no way to acquire them.
+  const unsolved = locked
+    ? []
+    : existing
+        .filter((q) => !q.solution?.trim() || q.solvedOption === null)
+        .map((q) => ({
+          id: q.id,
+          number: q.number,
+          subjectName: q.subject.name,
+          text: q.text,
+          optionA: q.optionA,
+          optionB: q.optionB,
+          optionC: q.optionC,
+          optionD: q.optionD,
+          correctOption: q.correctOption,
+          solvedOption: null,
+          solution: q.solution ?? "",
+        }));
+
   // Questions where the uploaded key and the paper's own worked solution reached
   // different options. Publishing is refused while any remain, so they are shown
   // with the means to settle them rather than only named in an error.
@@ -128,6 +150,7 @@ export default async function PaperPage({
             {existing.length > 0 &&
               exam.status !== "PUBLISHED" &&
               paperComplete &&
+              unsolved.length === 0 &&
               disagreeing.length === 0 && (
               <ConfirmButton
                 title="Publish this exam?"
@@ -191,6 +214,33 @@ export default async function PaperPage({
             </Link>
           </Button>
         </Alert>
+      )}
+
+      {/* A draft can be saved without solutions on purpose — upload today, solve
+          tomorrow. Tomorrow has to exist, though, and the upload screen is gone
+          by then, so the solving lives here on the stored questions. */}
+      {unsolved.length > 0 && (
+        <Card className="mb-6 border-warning">
+          <CardHeader>
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Lightbulb className="size-4 text-warning" />
+                {unsolved.length} question(s) have no worked solution
+              </CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Students read these once the exam window closes, and publishing
+                is held back until every question has one.
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody>
+            <SolvePanel
+              examId={id}
+              questions={unsolved}
+              configured={solutionsConfigured()}
+            />
+          </CardBody>
+        </Card>
       )}
 
       {/* The check that stops a wrong key going live. It is only worth having if

@@ -29,7 +29,7 @@ import {
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { adminExamStatus } from "@/lib/exam-window";
-import { disagreesWithKey } from "@/lib/solutions";
+import { publishBlockMessage, solutionsBlockingPublish } from "@/lib/solutions";
 import { formatDate, formatTime } from "@/lib/utils";
 import { PaperUploader } from "../../papers/paper-uploader";
 import { deleteExam, publishExam, unpublishExam } from "../actions";
@@ -75,10 +75,15 @@ export default async function ExamDetailPage({
   // bounce off a rule it can see from here.
   const answers = await prisma.question.findMany({
     where: { examId: id },
-    select: { solvedOption: true, correctOption: true },
+    select: {
+      number: true,
+      solution: true,
+      solvedOption: true,
+      correctOption: true,
+    },
   });
-  const unsettled = answers.filter(disagreesWithKey).length;
-  const readyToPublish = paperComplete && unsettled === 0;
+  const block = paperComplete ? solutionsBlockingPublish(answers) : null;
+  const readyToPublish = paperComplete && block === null;
 
   return (
     <>
@@ -120,17 +125,18 @@ export default async function ExamDetailPage({
         <Alert tone="warning" className="mb-6" title="This exam is still a draft">
           {!paperComplete ? (
             "Upload the question paper and answer key, then publish it so students can see it."
-          ) : unsettled > 0 ? (
+          ) : block ? (
             <>
-              <p>
-                The paper is complete, but on {unsettled} question(s) your answer
-                key and the paper&rsquo;s own worked solution reached different
-                options. One of them is wrong, and a wrong key marks correct
-                students down.
-              </p>
+              {/* The exact reason publishing would fail, in the gate's own
+                  words, and a way to act on it — both the solving and the
+                  settling happen on the paper page. */}
+              <p>{publishBlockMessage(block)}</p>
               <Button asChild variant="secondary" size="sm" className="mt-3">
                 <Link href={`/admin/papers/${exam.id}`}>
-                  <Scale /> Settle them on the paper
+                  <Scale />
+                  {block.kind === "UNSOLVED"
+                    ? "Work the solutions out"
+                    : "Settle them on the paper"}
                 </Link>
               </Button>
             </>

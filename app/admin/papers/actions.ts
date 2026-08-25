@@ -871,3 +871,105 @@ export async function settleQuestion(
   revalidatePath(`/admin/exams/${question.examId}`);
   return ok(`Question ${question.number} settled.`);
 }
+
+const solveSavedSchema = z.object({
+  examId: z.string().min(1),
+  questionIds: z.array(z.string().min(1)).min(1).max(8),
+});
+
+/**
+ * Works out solutions for questions of a paper that is already saved.
+ *
+ * The upload screen can solve a paper on its way in, but a draft saved without
+ * solutions could never acquire them: that screen operates on a parsed document
+ * that no longer exists once the paper is stored, and nothing else offered to
+ * solve anything. Publishing then refused the draft forever for want of the very
+ * thing there was no way to produce.
+ *
+ * Same independence as the upload path — the questions go to the model without
+ * their answer key, so the answer that comes back is still a real second opinion
+ * and can still disagree.
+ */
+export async function solveSavedQuestions(
+  input: z.input<typeof solveSavedSchema>,
+): Promise<ActionResult<{ solved: number }>> {
+  try {
+    await requireAdmin();
+  } catch (error) {
+    return fail(authErrorMessage(error) ?? "Not allowed");
+  }
+
+  const parsed = solveSavedSchema.safeParse(input);
+  if (!parsed.success) {
+    return fail(parsed.error.issues[0]?.message ?? "That batch could not be solved.");
+  }
+
+  const exam = await prisma.exam.findUnique({
+    where: { id: parsed.data.examId },
+    select: { medium: true, _count: { select: { attempts: true } } },
+  });
+  if (!exam) return fail("Exam not found.");
+  if (exam._count.attempts > 0) {
+    return fail(
+      "Students have already attempted this exam, so its answers can no longer be changed.",
+    );
+  }
+
+  const questions = await prisma.question.findMany({
+    where: { id: { in: parsed.data.questionIds }, examId: parsed.data.examId },
+    orderBy: [{ subject: { order: "asc" } }, { number: "asc" }],
+    select: {
+      id: true,
+      text: true,
+      optionA: true,
+      optionB: true,
+      optionC: true,
+      optionD: true,
+      subject: { select: { name: true } },
+      _count: { select: { images: true } },
+    },
+  });
+  if (questions.length === 0) return fail("Those questions are no longer on file.");
+
+  try {
+    // The model echoes an index back, so position in this array is the link to
+    // the row it belongs to. Never the question number: two subjects both start
+    // at 1, and the answers would land on each other.
+    const solutions = await solveBatch(
+      questions.map((q, index) => ({
+        index,
+        subjectName: q.subject.name,
+        text: q.text,
+        optionA: q.optionA,
+        optionB: q.optionB,
+        optionC: q.optionC,
+        optionD: q.optionD,
+        hasImages: q._count.images > 0,
+      })),
+      exam.medium,
+    );
+
+    await prisma.$transaction(
+      solutions
+        .filter((s) => questions[s.index])
+        .map((s) =>
+          prisma.question.update({
+            where: { id: questions[s.index].id },
+            data: { solution: s.solution, solvedOption: s.answer },
+          }),
+        ),
+    );
+
+    revalidatePath(`/admin/papers/${parsed.data.examId}`);
+    revalidatePath(`/admin/exams/${parsed.data.examId}`);
+    return ok(`${solutions.length} question(s) worked out.`, {
+      solved: solutions.length,
+    });
+  } catch (error) {
+    if (error instanceof SolutionConfigError) return fail(error.message);
+    return fail(
+      `That batch could not be solved: ${(error as Error).message} ` +
+        `Anything already worked out has been kept — retry the rest.`,
+    );
+  }
+}
