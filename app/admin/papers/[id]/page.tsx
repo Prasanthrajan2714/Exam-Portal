@@ -4,6 +4,7 @@ import {
   Clock,
   FilePlus2,
   ImageIcon,
+  Pencil,
   Scale,
   Send,
 } from "lucide-react";
@@ -95,8 +96,12 @@ export default async function PaperPage({
           <>
             {/* A draft whose paper is already complete has nowhere else to go —
                 publishing is only otherwise offered at the end of an upload, and
-                a reused paper never passes through one. */}
-            {existing.length > 0 && exam.status !== "PUBLISHED" && (
+                a reused paper never passes through one. Offered only when it can
+                actually succeed: a button that opens a confirmation and then
+                fails on a rule this page already knows about sends the admin
+                hunting for a problem in the paper. The alert below says what to
+                do instead. */}
+            {existing.length > 0 && exam.status !== "PUBLISHED" && paperComplete && (
               <ConfirmButton
                 title="Publish this exam?"
                 description={`${existing.length} question(s) go live for ${exam.batch.name}. Students can sit it during its scheduled window.`}
@@ -139,6 +144,27 @@ export default async function PaperPage({
           hint={locked ? "Paper is locked" : "Still editable"}
         />
       </div>
+
+      {/* The count on the exam and the count in the document disagree. Either
+          could be the wrong one, so name both ways out rather than guessing —
+          and say where the number is changed, which is not this page. */}
+      {existing.length > 0 && exam.status !== "PUBLISHED" && !paperComplete && (
+        <Alert tone="warning" className="mb-6">
+          <p>
+            This exam expects {expected} question(s) and the uploaded paper has{" "}
+            {exam._count.questions}. Publishing stays closed until they agree.
+          </p>
+          <p className="mt-1">
+            If the paper is right, change the exam to {exam._count.questions}{" "}
+            question(s). If the exam is right, upload the missing questions.
+          </p>
+          <Button asChild variant="secondary" size="sm" className="mt-3">
+            <Link href={`/admin/exams/${id}/edit`}>
+              <Pencil /> Change the question count
+            </Link>
+          </Button>
+        </Alert>
+      )}
 
       <div className="mb-6 grid gap-6 lg:grid-cols-2">
         <Card>

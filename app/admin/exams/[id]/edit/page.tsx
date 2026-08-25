@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, PageHeader } from "@/components/ui/primitives";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { questionFloors } from "@/lib/exam-structure";
 import { toDateInputValue } from "@/lib/utils";
 import { ExamForm } from "../../exam-form";
 
@@ -43,6 +44,20 @@ export default async function EditExamPage({
   ]);
 
   if (!exam) notFound();
+
+  // How many questions each subject already holds, which is what its declared
+  // count may now be lowered to.
+  const grouped = await prisma.question.groupBy({
+    by: ['subjectId'],
+    where: { examId: id },
+    _count: { _all: true },
+    _max: { number: true },
+  });
+  const stored = grouped.map((g) => ({
+    subjectId: g.subjectId,
+    stored: g._count._all,
+    highestNumber: g._max.number ?? 0,
+  }));
 
   // Editing after students have sat the paper would invalidate their results,
   // so the action refuses it — don't even render the form.
@@ -87,7 +102,8 @@ export default async function EditExamPage({
             subjectId: s.subjectId,
             questionCount: s.questionCount,
           })),
-          subjectsLocked: exam._count.questions > 0,
+          mediumLocked: exam._count.questions > 0,
+          questionFloors: questionFloors(stored),
         }}
       />
     </>

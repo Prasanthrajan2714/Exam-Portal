@@ -11,6 +11,10 @@ import {
 } from "@/lib/action-result";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import {
+  structureConflictMessage,
+  subjectCountConflicts,
+} from "@/lib/exam-structure";
 import { publishBlockMessage, solutionsBlockingPublish } from "@/lib/solutions";
 
 const subjectEntry = z.object({
@@ -184,22 +188,50 @@ export async function updateExam(
 
   const startsAt = new Date(input.startsAt);
 
-  // Subject counts can only be edited while no questions exist; once a paper is
-  // uploaded, changing counts would orphan questions.
-  const subjectsChangeable = exam._count.questions === 0;
+  // Counts stay editable after upload. The declared number only has to be able
+  // to describe the questions on file — and correcting it downwards is the only
+  // way out of an exam created for 20 questions whose paper holds 10, which the
+  // publish gate otherwise refuses forever.
+  const grouped = await prisma.question.groupBy({
+    by: ["subjectId"],
+    where: { examId: id },
+    _count: { _all: true },
+    _max: { number: true },
+  });
+  const stored = grouped.map((g) => ({
+    subjectId: g.subjectId,
+    stored: g._count._all,
+    highestNumber: g._max.number ?? 0,
+  }));
+
+  const conflicts = subjectCountConflicts(input.subjects, stored);
+  if (conflicts.length > 0) {
+    const names = new Map(
+      (
+        await prisma.subject.findMany({
+          where: { id: { in: conflicts.map((c) => c.subjectId) } },
+          select: { id: true, name: true },
+        })
+      ).map((s) => [s.id, s.name]),
+    );
+    return fail(
+      conflicts
+        .map((c) => structureConflictMessage(c, names.get(c.subjectId) ?? "This subject"))
+        .join(" "),
+      { subjects: "The counts do not fit the paper already uploaded." },
+    );
+  }
 
   await prisma.$transaction(async (tx) => {
-    if (subjectsChangeable) {
-      await tx.examSubject.deleteMany({ where: { examId: id } });
-      await tx.examSubject.createMany({
-        data: input.subjects.map((s, index) => ({
-          examId: id,
-          subjectId: s.subjectId,
-          questionCount: s.questionCount,
-          order: index,
-        })),
-      });
-    }
+    await tx.examSubject.deleteMany({ where: { examId: id } });
+    await tx.examSubject.createMany({
+      data: input.subjects.map((s, index) => ({
+        examId: id,
+        subjectId: s.subjectId,
+        questionCount: s.questionCount,
+        order: index,
+      })),
+    });
 
     await tx.exam.update({
       where: { id },
@@ -222,12 +254,9 @@ export async function updateExam(
 
   revalidatePath("/admin/exams");
   revalidatePath(`/admin/exams/${id}`);
-  return ok(
-    subjectsChangeable
-      ? "Exam updated."
-      : "Exam updated. Subject question counts were left alone because a paper is already uploaded.",
-    { examId: id },
-  );
+  revalidatePath("/admin/papers");
+  revalidatePath(`/admin/papers/${id}`);
+  return ok("Exam updated.", { examId: id });
 }
 
 export async function deleteExam(id: string): Promise<ActionResult> {

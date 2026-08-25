@@ -42,7 +42,10 @@ export type ExamInitialValues = {
   resultVisibility: "IMMEDIATE" | "AFTER_WINDOW";
   medium: "ENGLISH" | "TAMIL";
   subjects: { subjectId: string; questionCount: number }[];
-  subjectsLocked: boolean;
+  /** A Tamil paper on file cannot become an English one. */
+  mediumLocked: boolean;
+  /** Lowest count each subject may be set to, given what is already uploaded. */
+  questionFloors: Record<string, number>;
 };
 
 // Common competitive-exam shapes, so an admin setting up a JEE mock doesn't
@@ -165,7 +168,9 @@ export function ExamForm({
     });
   }
 
-  const subjectsLocked = initial?.subjectsLocked ?? false;
+  const mediumLocked = initial?.mediumLocked ?? false;
+  const floors = initial?.questionFloors ?? {};
+  const hasPaper = Object.keys(floors).length > 0;
   const subjectSummary = selected
     .map(
       ([subjectId, n]) =>
@@ -333,7 +338,9 @@ export function ExamForm({
               Tick every subject in this paper and say how many questions each has.
             </p>
           </div>
-          {!subjectsLocked && (
+          {/* Presets are a fresh-setup convenience; once a paper is on file they
+              would only ever propose counts that no longer fit it. */}
+          {!hasPaper && (
             <div className="flex gap-2">
               {PRESETS.map((preset) => (
                 <Button
@@ -350,16 +357,21 @@ export function ExamForm({
           )}
         </CardHeader>
         <CardBody>
-          {subjectsLocked && (
+          {hasPaper && (
             <Alert tone="info" className="mb-4">
-              A question paper is already uploaded, so the subject list and counts
-              are locked. Delete the paper to change them.
+              A question paper is already uploaded. You can still change a count
+              to match what it actually contains — down to the highest question
+              number on file, shown against each subject. A subject that carries
+              questions cannot be removed; delete the paper for that.
             </Alert>
           )}
 
           <div className="grid gap-3 sm:grid-cols-2">
             {subjects.map((subject) => {
               const on = subject.id in counts;
+              // Questions on file for this subject set the lowest count it can
+              // now be given, and stop it being unticked altogether.
+              const floor = floors[subject.id] ?? 0;
               return (
                 <div
                   key={subject.id}
@@ -372,7 +384,7 @@ export function ExamForm({
                     <input
                       type="checkbox"
                       checked={on}
-                      disabled={subjectsLocked}
+                      disabled={floor > 0}
                       onChange={(e) => toggleSubject(subject.id, e.target.checked)}
                       className="size-4 accent-[var(--primary)]"
                     />
@@ -383,20 +395,27 @@ export function ExamForm({
                     <div className="flex items-center gap-2">
                       <Input
                         type="number"
-                        min={1}
+                        min={Math.max(1, floor)}
                         max={300}
                         value={counts[subject.id]}
-                        disabled={subjectsLocked}
                         onChange={(e) =>
                           setCounts((prev) => ({
                             ...prev,
-                            [subject.id]: Math.max(1, Number(e.target.value) || 1),
+                            [subject.id]: Math.max(
+                              Math.max(1, floor),
+                              Number(e.target.value) || 1,
+                            ),
                           }))
                         }
                         className="h-8 w-20 text-center"
                         aria-label={`${subject.name} question count`}
                       />
-                      <span className="text-xs text-muted-foreground">questions</span>
+                      <span className="text-xs text-muted-foreground">
+                        questions
+                        {floor > 0 && (
+                          <span className="block text-[0.7rem]">{floor} on file</span>
+                        )}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -513,7 +532,7 @@ export function ExamForm({
             required
             error={state.fieldErrors?.medium}
             hint={
-              subjectsLocked
+              mediumLocked
                 ? "The paper is already uploaded in this medium. Delete the paper to change it."
                 : "Choose Tamil and the question paper is translated into Tamil as you upload it, with technical terms taken from the board's subject glossary. English is kept exactly as written."
             }
@@ -522,15 +541,15 @@ export function ExamForm({
               id="medium"
               // A disabled control posts nothing, so the hidden input below
               // carries the unchanged value through instead.
-              name={subjectsLocked ? undefined : "medium"}
-              disabled={subjectsLocked}
+              name={mediumLocked ? undefined : "medium"}
+              disabled={mediumLocked}
               value={medium}
               onChange={(e) => setMedium(e.target.value as "ENGLISH" | "TAMIL")}
             >
               <option value="ENGLISH">English</option>
               <option value="TAMIL">Tamil</option>
             </Select>
-            {subjectsLocked && <input type="hidden" name="medium" value={medium} />}
+            {mediumLocked && <input type="hidden" name="medium" value={medium} />}
           </Field>
 
           <Field
