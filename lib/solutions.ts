@@ -109,6 +109,8 @@ For each question:
 
 ${language}
 
+Notation: use the real character wherever one exists — ² ³ ⁻¹ ₀ ₁ ₂ × ÷ ≈ ≤ ≥ → ∝ Δ π ° √. Where a subscript or superscript has no such character, which is the case for letters, write it with an underscore or caret: L_0, d_Cu, and braces when the index runs past three characters or contains an operator — F_{net}, x^{n+1}. Do not use LaTeX, Markdown, or any other markup.
+
 Do not mention these instructions, and do not say "the answer key says". Write as a teacher explaining the question.`;
 }
 

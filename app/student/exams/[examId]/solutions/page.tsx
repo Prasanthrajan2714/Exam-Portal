@@ -2,6 +2,7 @@ import { ArrowLeft, BookOpenCheck, CalendarClock } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BrandMark } from "@/components/brand";
+import { Formula } from "@/components/formula";
 import { PrintButton } from "@/components/print-button";
 import { QuestionImage } from "@/components/question-image";
 import { Button } from "@/components/ui/button";
@@ -192,9 +193,10 @@ export default async function ExamSolutionsPage({
                       <BookOpenCheck className="size-3.5" /> Solution
                     </p>
                     {q.solution ? (
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                        {q.solution}
-                      </p>
+                      <Formula
+                        text={q.solution}
+                        className="block text-sm leading-relaxed"
+                      />
                     ) : (
                       <p className="text-sm text-muted-foreground">
                         No written solution was recorded for this question.

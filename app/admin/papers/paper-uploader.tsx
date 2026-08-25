@@ -17,6 +17,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
+import { Formula } from "@/components/formula";
 import { QuestionImage } from "@/components/question-image";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
@@ -29,6 +30,7 @@ import {
   CardTitle,
   Stat,
 } from "@/components/ui/primitives";
+import { hasFormulaMarkup } from "@/lib/formula";
 import { nothingToTranslate, stillEnglish } from "@/lib/translation-review";
 import { cn } from "@/lib/utils";
 import {
@@ -1394,6 +1396,18 @@ function SolutionReview({
           className={cn("min-h-28", blank && "border-danger")}
         />
       </Field>
+
+      {/* The box above holds the source, where a subscript has to be written as
+          markup — d_Cu, F_{net} — because Unicode has no subscript letters. This
+          shows how it will actually read, so the admin is not editing blind. */}
+      {hasFormulaMarkup(solution.solution) && (
+        <div className="rounded-[var(--radius-app)] border border-border bg-surface px-3 py-2">
+          <p className="mb-1 text-[0.7rem] font-semibold uppercase tracking-wide text-muted-foreground">
+            How students will read it
+          </p>
+          <Formula text={solution.solution} className="block text-sm leading-relaxed" />
+        </div>
+      )}
 
       <div className="grid gap-2 sm:grid-cols-2">
         <Field

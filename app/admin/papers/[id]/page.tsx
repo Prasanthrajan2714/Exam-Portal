@@ -10,6 +10,7 @@ import {
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ConfirmButton } from "@/components/confirm-button";
+import { Formula } from "@/components/formula";
 import { Button } from "@/components/ui/button";
 import {
   Alert,
@@ -298,9 +299,10 @@ function SavedQuestions({
                     <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
                       Read solution
                     </summary>
-                    <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed">
-                      {q.solution}
-                    </p>
+                    <Formula
+                      text={q.solution}
+                      className="mt-1 block text-xs leading-relaxed"
+                    />
                   </details>
                 ) : (
                   <span className="text-xs text-muted-foreground">Not solved yet</span>
