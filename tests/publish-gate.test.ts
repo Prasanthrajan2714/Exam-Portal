@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { publishBlockMessage, solutionsBlockingPublish } from "@/lib/solutions";
+import {
+  disagreesWithKey,
+  publishBlockMessage,
+  solutionsBlockingPublish,
+} from "@/lib/solutions";
 
 /**
  * A paper may only be published once it carries worked solutions and those
@@ -76,5 +80,19 @@ describe("publishBlockMessage", () => {
     const message = publishBlockMessage({ kind: "DISAGREE", numbers: [2, 7] });
     expect(message).toContain("2, 7");
     expect(message).toMatch(/marks correct answers wrong/);
+  });
+});
+
+describe("disagreesWithKey", () => {
+  it("is true only when a solved answer differs from the key", () => {
+    expect(disagreesWithKey({ solvedOption: "D", correctOption: "A" })).toBe(true);
+    expect(disagreesWithKey({ solvedOption: "A", correctOption: "A" })).toBe(false);
+  });
+
+  it("is false for a question not solved yet", () => {
+    // Unsolved is a separate block with a separate message; treating it as a
+    // disagreement would put a question with no working into the settle screen,
+    // where there is nothing to settle against.
+    expect(disagreesWithKey({ solvedOption: null, correctOption: "A" })).toBe(false);
   });
 });

@@ -46,6 +46,18 @@ export type PublishBlock =
   | { kind: "DISAGREE"; numbers: number[] };
 
 /**
+ * A question whose worked solution reached a different option from the answer
+ * key. One definition, because the publish gate, the paper page and the exam
+ * page each need to know, and three separate comparisons drift apart.
+ */
+export function disagreesWithKey(q: {
+  solvedOption: OptionKey | null;
+  correctOption: OptionKey;
+}): boolean {
+  return q.solvedOption !== null && q.solvedOption !== q.correctOption;
+}
+
+/**
  * Why this paper cannot be published yet, or null when it can.
  *
  * A pure rule rather than a query inside the action: publishing is reachable
@@ -65,7 +77,7 @@ export function solutionsBlockingPublish(
   if (unsolved.length > 0) return { kind: "UNSOLVED", count: unsolved.length };
 
   const numbers = questions
-    .filter((q) => q.solvedOption !== q.correctOption)
+    .filter(disagreesWithKey)
     .map((q) => q.number)
     .sort((a, b) => a - b);
   if (numbers.length > 0) return { kind: "DISAGREE", numbers };

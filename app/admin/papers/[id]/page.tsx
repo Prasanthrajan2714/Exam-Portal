@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   ArrowLeft,
   CalendarDays,
   Clock,
@@ -29,9 +30,11 @@ import {
 } from "@/components/ui/primitives";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { disagreesWithKey } from "@/lib/solutions";
 import { formatDate, formatTime } from "@/lib/utils";
 import { publishExam } from "@/app/admin/exams/actions";
 import { ReusePaperDialog } from "./reuse-form";
+import { SettleQuestion } from "./settle-form";
 
 export const metadata = { title: "Question paper · Admin" };
 
@@ -81,6 +84,27 @@ export default async function PaperPage({
   const locked = exam._count.attempts > 0;
   const paperComplete = exam._count.questions === expected && expected > 0;
 
+  // Questions where the uploaded key and the paper's own worked solution reached
+  // different options. Publishing is refused while any remain, so they are shown
+  // with the means to settle them rather than only named in an error.
+  const disagreeing = locked
+    ? []
+    : existing
+        .filter(disagreesWithKey)
+        .map((q) => ({
+          id: q.id,
+          number: q.number,
+          subjectName: q.subject.name,
+          text: q.text,
+          optionA: q.optionA,
+          optionB: q.optionB,
+          optionC: q.optionC,
+          optionD: q.optionD,
+          correctOption: q.correctOption,
+          solvedOption: q.solvedOption!,
+          solution: q.solution ?? "",
+        }));
+
   return (
     <>
       <PageHeader
@@ -101,7 +125,10 @@ export default async function PaperPage({
                 fails on a rule this page already knows about sends the admin
                 hunting for a problem in the paper. The alert below says what to
                 do instead. */}
-            {existing.length > 0 && exam.status !== "PUBLISHED" && paperComplete && (
+            {existing.length > 0 &&
+              exam.status !== "PUBLISHED" &&
+              paperComplete &&
+              disagreeing.length === 0 && (
               <ConfirmButton
                 title="Publish this exam?"
                 description={`${existing.length} question(s) go live for ${exam.batch.name}. Students can sit it during its scheduled window.`}
@@ -164,6 +191,35 @@ export default async function PaperPage({
             </Link>
           </Button>
         </Alert>
+      )}
+
+      {/* The check that stops a wrong key going live. It is only worth having if
+          the admin can act on it here — the key and the working of a saved paper
+          are editable nowhere else, so naming the question in an error message
+          left deleting the paper as the only way forward. */}
+      {disagreeing.length > 0 && (
+        <Card className="mb-6 border-danger">
+          <CardHeader>
+            <div>
+              <CardTitle className="flex items-center gap-2 text-danger">
+                <AlertTriangle className="size-4" />
+                {disagreeing.length} question(s) need settling before publishing
+              </CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                The answer key you uploaded and the paper&rsquo;s own worked
+                solution reached different options. Each question was solved from
+                the question and its options alone, without being shown the key,
+                so a disagreement means one of the two is wrong — and a wrong key
+                marks correct students down with nothing later to catch it.
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody className="space-y-6">
+            {disagreeing.map((q) => (
+              <SettleQuestion key={q.id} question={q} />
+            ))}
+          </CardBody>
+        </Card>
       )}
 
       <div className="mb-6 grid gap-6 lg:grid-cols-2">

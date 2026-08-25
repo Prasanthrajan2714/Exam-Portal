@@ -791,3 +791,83 @@ export async function reusePaperForBatch(
     { examId: newExamId },
   );
 }
+
+const settleSchema = z.object({
+  questionId: z.string().min(1),
+  correctOption: z.enum(["A", "B", "C", "D"]),
+  solvedOption: z.enum(["A", "B", "C", "D"]),
+  solution: z.string().trim().min(1, "A solution is needed before publishing."),
+});
+
+/**
+ * Settles a question whose answer key and worked solution disagree.
+ *
+ * Without this the gate is a wall rather than a check: publishing is refused,
+ * and nothing anywhere lets an admin change the key or the working of a paper
+ * that is already saved. The only exit was deleting the paper and starting over.
+ *
+ * Both directions are offered on purpose. The key is wrong often enough — the
+ * disagreement that prompted this was a key of A against a correctly worked D —
+ * but the model is wrong sometimes too, and an admin who knows the key is right
+ * has to be able to rewrite the working instead. What is deliberately not
+ * offered is dismissing the disagreement without resolving it.
+ */
+export async function settleQuestion(
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    await requireAdmin();
+  } catch (error) {
+    return fail(authErrorMessage(error) ?? "Not allowed");
+  }
+
+  const parsed = settleSchema.safeParse({
+    questionId: formData.get("questionId"),
+    correctOption: formData.get("correctOption"),
+    solvedOption: formData.get("solvedOption"),
+    solution: formData.get("solution"),
+  });
+  if (!parsed.success) {
+    return fail("Please fix the highlighted fields.", zodFieldErrors(parsed.error));
+  }
+  const input = parsed.data;
+
+  const question = await prisma.question.findUnique({
+    where: { id: input.questionId },
+    select: {
+      number: true,
+      examId: true,
+      exam: { select: { _count: { select: { attempts: true } } } },
+    },
+  });
+  if (!question) return fail("Question not found.");
+
+  // The same rule the rest of the paper follows: once anyone has sat it, the
+  // marking cannot move underneath the results already recorded.
+  if (question.exam._count.attempts > 0) {
+    return fail(
+      "Students have already attempted this exam, so its answers can no longer be changed.",
+    );
+  }
+
+  if (input.correctOption !== input.solvedOption) {
+    return fail(
+      `The key and the working still disagree on question ${question.number}. ` +
+        `Set both to the answer you have settled on.`,
+    );
+  }
+
+  await prisma.question.update({
+    where: { id: input.questionId },
+    data: {
+      correctOption: input.correctOption,
+      solvedOption: input.solvedOption,
+      solution: input.solution,
+    },
+  });
+
+  revalidatePath(`/admin/papers/${question.examId}`);
+  revalidatePath(`/admin/exams/${question.examId}`);
+  return ok(`Question ${question.number} settled.`);
+}

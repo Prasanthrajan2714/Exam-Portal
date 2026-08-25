@@ -5,6 +5,7 @@ import {
   Clock,
   FileUp,
   Pencil,
+  Scale,
   Trash2,
   Users,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import {
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { adminExamStatus } from "@/lib/exam-window";
+import { disagreesWithKey } from "@/lib/solutions";
 import { formatDate, formatTime } from "@/lib/utils";
 import { PaperUploader } from "../../papers/paper-uploader";
 import { deleteExam, publishExam, unpublishExam } from "../actions";
@@ -67,6 +69,17 @@ export default async function ExamDetailPage({
   const published = exam.status === "PUBLISHED";
   const paperComplete = exam._count.questions === expected && expected > 0;
 
+  // Publishing is also refused while the answer key and a question's own worked
+  // solution disagree. The settling happens on the paper page, so this page only
+  // needs to know whether any remain — and must not offer a Publish that will
+  // bounce off a rule it can see from here.
+  const answers = await prisma.question.findMany({
+    where: { examId: id },
+    select: { solvedOption: true, correctOption: true },
+  });
+  const unsettled = answers.filter(disagreesWithKey).length;
+  const readyToPublish = paperComplete && unsettled === 0;
+
   return (
     <>
       <PageHeader
@@ -105,9 +118,25 @@ export default async function ExamDetailPage({
 
       {!published && (
         <Alert tone="warning" className="mb-6" title="This exam is still a draft">
-          {paperComplete
-            ? "The paper is complete — publish it below to make it visible to this batch."
-            : "Upload the question paper and answer key, then publish it so students can see it."}
+          {!paperComplete ? (
+            "Upload the question paper and answer key, then publish it so students can see it."
+          ) : unsettled > 0 ? (
+            <>
+              <p>
+                The paper is complete, but on {unsettled} question(s) your answer
+                key and the paper&rsquo;s own worked solution reached different
+                options. One of them is wrong, and a wrong key marks correct
+                students down.
+              </p>
+              <Button asChild variant="secondary" size="sm" className="mt-3">
+                <Link href={`/admin/papers/${exam.id}`}>
+                  <Scale /> Settle them on the paper
+                </Link>
+              </Button>
+            </>
+          ) : (
+            "The paper is complete — publish it below to make it visible to this batch."
+          )}
         </Alert>
       )}
 
@@ -234,7 +263,7 @@ export default async function ExamDetailPage({
           </Button>
         )}
 
-        {!published && paperComplete && (
+        {!published && readyToPublish && (
           <ConfirmButton
             title="Publish this exam?"
             description={`${exam._count.questions} question(s) go live for ${exam.batch.name}. Students can sit it during its scheduled window.`}
