@@ -955,16 +955,34 @@ export async function solveSavedQuestions(
         .map((s) =>
           prisma.question.update({
             where: { id: questions[s.index].id },
-            data: { solution: s.solution, solvedOption: s.answer },
+            data: {
+              solution: s.solution,
+              // An answer the model itself is not confident in must not be
+              // stored as one. It would be counted as an independent second
+              // opinion it is not — the usual cause is an equation living in an
+              // image it cannot see, where the "answer" is an admitted guess —
+              // and worse, a solution reading "the equation is not available"
+              // would be shown to the batch after the window closed. Keeping
+              // the note without an option leaves the question unsolved, which
+              // is the truth, and says why.
+              solvedOption: s.confident ? s.answer : null,
+            },
           }),
         ),
     );
 
     revalidatePath(`/admin/papers/${parsed.data.examId}`);
     revalidatePath(`/admin/exams/${parsed.data.examId}`);
-    return ok(`${solutions.length} question(s) worked out.`, {
-      solved: solutions.length,
-    });
+
+    const answered = solutions.filter((s) => s.confident).length;
+    const stuck = solutions.length - answered;
+    return ok(
+      stuck === 0
+        ? `${answered} question(s) worked out.`
+        : `${answered} worked out. ${stuck} could not be — read the note on each ` +
+          `and write those yourself.`,
+      { solved: answered },
+    );
   } catch (error) {
     if (error instanceof SolutionConfigError) return fail(error.message);
     return fail(

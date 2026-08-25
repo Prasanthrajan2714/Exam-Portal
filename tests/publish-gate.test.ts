@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   disagreesWithKey,
   publishBlockMessage,
+  solutionState,
   solutionsBlockingPublish,
 } from "@/lib/solutions";
 
@@ -94,5 +95,37 @@ describe("disagreesWithKey", () => {
     // disagreement would put a question with no working into the settle screen,
     // where there is nothing to settle against.
     expect(disagreesWithKey({ solvedOption: null, correctOption: "A" })).toBe(false);
+  });
+});
+
+describe("solutionState", () => {
+  it("is SOLVED only with both a working and the answer it reaches", () => {
+    expect(solutionState({ solution: "Because x = 2.", solvedOption: "B" })).toBe(
+      "SOLVED",
+    );
+  });
+
+  it("is UNANSWERABLE when the model wrote something but would not commit", () => {
+    // What a question whose equation lives in an image produces. Storing the
+    // guess as an answer would count it as an independent second opinion it is
+    // not, and would show "the equation is not available" to the batch as their
+    // worked solution.
+    expect(
+      solutionState({
+        solution: "The equation is given only in the image, which is not available.",
+        solvedOption: null,
+      }),
+    ).toBe("UNANSWERABLE");
+  });
+
+  it("is NONE when nothing has been written", () => {
+    expect(solutionState({ solution: null, solvedOption: null })).toBe("NONE");
+    expect(solutionState({ solution: "   ", solvedOption: null })).toBe("NONE");
+  });
+
+  it("treats a blanked working as unsolved even with an answer beside it", () => {
+    // An admin who empties the box has withdrawn the solution; publishing must
+    // not sail past on the leftover option.
+    expect(solutionState({ solution: "", solvedOption: "B" })).toBe("NONE");
   });
 });

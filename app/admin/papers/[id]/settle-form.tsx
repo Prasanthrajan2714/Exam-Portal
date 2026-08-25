@@ -6,6 +6,7 @@ import { useActionState, useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { toast } from "sonner";
 import { Formula } from "@/components/formula";
+import { QuestionImage, type QuestionImageSource } from "@/components/question-image";
 import { Button } from "@/components/ui/button";
 import { Field, Textarea } from "@/components/ui/field";
 import { Badge } from "@/components/ui/primitives";
@@ -29,6 +30,8 @@ export type DisagreeingQuestion = {
   /** Null when the question has never been worked out. */
   solvedOption: OptionKey | null;
   solution: string;
+  /** Diagrams and equations from the document, by where they belong. */
+  images: (QuestionImageSource & { id: string; target: "STEM" | OptionKey })[];
 };
 
 function Submit({ number, unsolved }: { number: number; unsolved: boolean }) {
@@ -80,6 +83,8 @@ export function SettleQuestion({ question }: { question: DisagreeingQuestion }) 
     D: question.optionD,
   };
 
+  const stemImages = question.images.filter((i) => i.target === "STEM");
+
   return (
     <form action={formAction} className="space-y-4 border-t border-border pt-4">
       <input type="hidden" name="questionId" value={question.id} />
@@ -99,6 +104,24 @@ export function SettleQuestion({ question }: { question: DisagreeingQuestion }) 
       </div>
 
       <p className="whitespace-pre-wrap text-sm leading-relaxed">{question.text}</p>
+
+      {/* Without these the question is unreadable here: a maths paper puts the
+          whole relation in an equation image, leaving a stem like "If , then the
+          value of r is" — and this screen exists precisely so the admin can
+          judge the answer for themselves. */}
+      {stemImages.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {stemImages.map((img) => (
+            <QuestionImage
+              key={img.id}
+              image={img}
+              alt="Part of the question"
+              fallbackWidth={320}
+              fallbackHeight={240}
+            />
+          ))}
+        </div>
+      )}
 
       <fieldset className="space-y-2">
         <legend className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -124,7 +147,21 @@ export function SettleQuestion({ question }: { question: DisagreeingQuestion }) 
                 aria-label={`Option ${key}`}
               />
               <span className="font-semibold">{key}.</span>
-              <span className="flex-1">{texts[key]}</span>
+              <span className="flex-1">
+                <span className="block">{texts[key]}</span>
+                {question.images
+                  .filter((i) => i.target === key)
+                  .map((img) => (
+                    <QuestionImage
+                      key={img.id}
+                      image={img}
+                      alt={`Option ${key}`}
+                      fallbackWidth={200}
+                      fallbackHeight={150}
+                      className="mt-1"
+                    />
+                  ))}
+              </span>
               <span className="flex shrink-0 gap-1">
                 {question.correctOption === key && (
                   <Badge tone="neutral">your key</Badge>

@@ -45,6 +45,34 @@ export type PublishBlock =
   | { kind: "UNSOLVED"; count: number }
   | { kind: "DISAGREE"; numbers: number[] };
 
+export type SolutionState =
+  /** Never worked out. */
+  | "NONE"
+  /** Worked on, but the model could not answer — its note is in `solution`. */
+  | "UNANSWERABLE"
+  /** A worked solution and the answer it reaches. */
+  | "SOLVED";
+
+/**
+ * What has happened to a question's solution so far.
+ *
+ * Expressed in the two columns already there rather than a third: a solution
+ * with no answer beside it can only mean the model wrote something and declined
+ * to commit to an option, which is exactly the middle state. Distinguishing it
+ * matters because it must not be mistaken for either of its neighbours — it is
+ * not solved, and re-running the solver on it is usually wasted money, because
+ * the reason is normally an equation that lives in an image the model cannot
+ * see and will not be able to see next time either.
+ */
+export function solutionState(q: {
+  solution: string | null;
+  solvedOption: OptionKey | null;
+}): SolutionState {
+  if (q.solvedOption !== null && q.solution?.trim()) return "SOLVED";
+  if (q.solution?.trim()) return "UNANSWERABLE";
+  return "NONE";
+}
+
 /**
  * A question whose worked solution reached a different option from the answer
  * key. One definition, because the publish gate, the paper page and the exam

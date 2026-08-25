@@ -31,7 +31,11 @@ import {
 } from "@/components/ui/primitives";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { disagreesWithKey, solutionsConfigured } from "@/lib/solutions";
+import {
+  disagreesWithKey,
+  solutionState,
+  solutionsConfigured,
+} from "@/lib/solutions";
 import { formatDate, formatTime } from "@/lib/utils";
 import { publishExam } from "@/app/admin/exams/actions";
 import { ReusePaperDialog } from "./reuse-form";
@@ -69,6 +73,7 @@ export default async function PaperPage({
           orderBy: [{ subject: { order: "asc" } }, { number: "asc" }],
           include: {
             subject: { select: { name: true } },
+            images: { orderBy: { order: 'asc' } },
             _count: { select: { images: true } },
           },
         })
@@ -86,24 +91,41 @@ export default async function PaperPage({
   const locked = exam._count.attempts > 0;
   const paperComplete = exam._count.questions === expected && expected > 0;
 
-  // Questions never worked out at all. A paper saved as a draft before its
-  // solutions were run arrives here, and until now had no way to acquire them.
+  // The images come along: a maths paper puts the whole relation in an equation
+  // image, and both screens below exist so the admin can judge the answer for
+  // themselves — which is impossible looking at "If , then the value of r is".
+  const editable = (q: (typeof existing)[number], solution: string) => ({
+    id: q.id,
+    number: q.number,
+    subjectName: q.subject.name,
+    text: q.text,
+    optionA: q.optionA,
+    optionB: q.optionB,
+    optionC: q.optionC,
+    optionD: q.optionD,
+    correctOption: q.correctOption,
+    solvedOption: q.solvedOption,
+    solution,
+    images: q.images.map((i) => ({
+      id: i.id,
+      path: i.path,
+      width: i.width,
+      height: i.height,
+      target: i.target,
+    })),
+  });
+
+  // Questions with no usable solution. A paper saved as a draft before its
+  // solutions were run arrives here, and so does one the model could not answer
+  // — its note travels separately from the working, which stays empty, because
+  // "the equation is not available" is an explanation and not a solution.
   const unsolved = locked
     ? []
     : existing
-        .filter((q) => !q.solution?.trim() || q.solvedOption === null)
+        .filter((q) => solutionState(q) !== "SOLVED")
         .map((q) => ({
-          id: q.id,
-          number: q.number,
-          subjectName: q.subject.name,
-          text: q.text,
-          optionA: q.optionA,
-          optionB: q.optionB,
-          optionC: q.optionC,
-          optionD: q.optionD,
-          correctOption: q.correctOption,
-          solvedOption: null,
-          solution: q.solution ?? "",
+          ...editable(q, ""),
+          note: solutionState(q) === "UNANSWERABLE" ? (q.solution ?? "") : "",
         }));
 
   // Questions where the uploaded key and the paper's own worked solution reached
@@ -111,21 +133,7 @@ export default async function PaperPage({
   // with the means to settle them rather than only named in an error.
   const disagreeing = locked
     ? []
-    : existing
-        .filter(disagreesWithKey)
-        .map((q) => ({
-          id: q.id,
-          number: q.number,
-          subjectName: q.subject.name,
-          text: q.text,
-          optionA: q.optionA,
-          optionB: q.optionB,
-          optionC: q.optionC,
-          optionD: q.optionD,
-          correctOption: q.correctOption,
-          solvedOption: q.solvedOption!,
-          solution: q.solution ?? "",
-        }));
+    : existing.filter(disagreesWithKey).map((q) => editable(q, q.solution ?? ""));
 
   return (
     <>
