@@ -11,6 +11,7 @@ import {
 } from "@/lib/action-result";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { publishBlockMessage, solutionsBlockingPublish } from "@/lib/solutions";
 
 const subjectEntry = z.object({
   subjectId: z.string().min(1),
@@ -291,6 +292,16 @@ export async function publishExam(id: string): Promise<ActionResult> {
         `Fix the paper before publishing it.`,
     );
   }
+
+  // Solutions gate publishing, and the check lives here rather than only in the
+  // upload screen — publishing is reachable from the exam page and the paper
+  // page too, and a rule enforced in one button is not a rule.
+  const questions = await prisma.question.findMany({
+    where: { examId: id },
+    select: { number: true, solution: true, solvedOption: true, correctOption: true },
+  });
+  const block = solutionsBlockingPublish(questions);
+  if (block) return fail(publishBlockMessage(block));
 
   await prisma.exam.update({ where: { id }, data: { status: "PUBLISHED" } });
   revalidatePath("/admin/exams");

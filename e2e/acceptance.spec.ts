@@ -215,8 +215,32 @@ test("admin creates an exam and uploads its paper without leaving Create Exam", 
   await expect(stems.first()).toHaveValue("What is 2 + 2?");
   await expect(stems.nth(2)).toHaveValue("What is the SI unit of force?");
 
-  // The key covered every question, so nothing should be blocking.
+  // ------------------------------------------------------------- solutions
+  // A paper cannot go live without worked solutions that agree with the answer
+  // key. Typed here rather than asking Claude to work them out: the gate is
+  // what this journey is checking, and a real solve would spend money on every
+  // test run.
   const publish = page.getByRole("button", { name: "Publish to students" });
+  await expect(publish, "unsolved papers must not be publishable").toBeDisabled();
+
+  // Writing them by hand is the same route an admin takes when the API is
+  // unavailable, so this covers that path too.
+  const writeMyself = page.getByRole("button", { name: "Write one myself" });
+  await expect(writeMyself).toHaveCount(4);
+  for (let i = 3; i >= 0; i--) await writeMyself.nth(i).click();
+
+  const workings = page.locator('textarea[id^="sol-"]');
+  await expect(workings).toHaveCount(4);
+  for (let i = 0; i < 4; i++) {
+    await workings.nth(i).fill(`Worked out step by step for question ${i + 1}.`);
+    // Agree with the key: the disagreement path is covered by unit tests, and
+    // this journey needs the paper to reach students.
+    const keyText = await page.locator(`#sol-key-${i}`).innerText();
+    const key = /Option ([ABCD])/.exec(keyText)?.[1];
+    expect(key, `question ${i + 1} should have an answer key`).toBeTruthy();
+    await page.locator(`select[id="sol-answer-${i}"]`).selectOption(key!);
+  }
+
   await expect(publish).toBeEnabled();
   await publish.click();
 

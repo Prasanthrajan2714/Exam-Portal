@@ -14,6 +14,13 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { parseQuestionPaper } from "@/lib/docx-parser";
 import {
+  type SolvedQuestion,
+  SolutionConfigError,
+  publishBlockMessage,
+  solutionsBlockingPublish,
+  solveBatch,
+} from "@/lib/solutions";
+import {
   type TranslatedQuestion,
   TranslationConfigError,
   translateBatch,
@@ -25,7 +32,7 @@ import {
   saveExamDocument,
 } from "@/lib/uploads";
 
-export type { TranslatedQuestion };
+export type { SolvedQuestion, TranslatedQuestion };
 
 /**
  * Upload → parse → preview → publish.
@@ -260,6 +267,79 @@ export async function translateQuestions(
   }
 }
 
+// ---------------------------------------------------------------- solve
+
+/**
+ * One batch of worked solutions, not the whole paper.
+ *
+ * Batched for the same reasons translation is, only more so: solving runs Opus
+ * at high effort, so a batch is minutes rather than seconds and a 180-question
+ * paper in one request would be a single point of failure the admin watches for
+ * half an hour. Batches are smaller than the translation ones because each
+ * question costs far more thinking, and because a failure should throw away as
+ * little of that as possible — everything already solved is kept client-side
+ * and only the rest is retried.
+ *
+ * The answer key never leaves the server on this path. The client sends the
+ * question and its options; the value of the check is that the model reaches an
+ * answer without having seen the one the admin uploaded.
+ */
+const solveSchema = z.object({
+  examId: z.string().min(1),
+  questions: z
+    .array(
+      z.object({
+        index: z.number().int().min(0),
+        subjectName: z.string(),
+        text: z.string(),
+        optionA: z.string(),
+        optionB: z.string(),
+        optionC: z.string(),
+        optionD: z.string(),
+        /** Lets the model say "I cannot see this diagram" instead of guessing. */
+        hasImages: z.boolean(),
+      }),
+    )
+    .min(1, "There is nothing to solve.")
+    .max(8, "Solve in smaller batches — 8 questions at a time at most."),
+});
+
+export async function solveQuestions(
+  input: z.input<typeof solveSchema>,
+): Promise<ActionResult<{ solutions: SolvedQuestion[] }>> {
+  try {
+    await requireAdmin();
+  } catch (error) {
+    return fail(authErrorMessage(error) ?? "Not allowed");
+  }
+
+  const parsed = solveSchema.safeParse(input);
+  if (!parsed.success) {
+    return fail(parsed.error.issues[0]?.message ?? "That batch could not be solved.");
+  }
+
+  // The language of the solution is the exam's, not the client's — same rule as
+  // publishPaper. A Tamil paper's students read Tamil solutions.
+  const exam = await prisma.exam.findUnique({
+    where: { id: parsed.data.examId },
+    select: { medium: true },
+  });
+  if (!exam) return fail("Exam not found.");
+
+  try {
+    const solutions = await solveBatch(parsed.data.questions, exam.medium);
+    return ok(`${solutions.length} question(s) worked out.`, { solutions });
+  } catch (error) {
+    // A missing key is a setup problem, not a failure of this paper: say so in
+    // the module's own words rather than dressing it up as a solving error.
+    if (error instanceof SolutionConfigError) return fail(error.message);
+    return fail(
+      `That batch could not be solved: ${(error as Error).message} ` +
+        `The questions already solved have been kept — retry the rest.`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------- publish
 
 const publishSchema = z.object({
@@ -284,6 +364,11 @@ const publishSchema = z.object({
         sourceOptionC: z.string().nullish(),
         sourceOptionD: z.string().nullish(),
         correctOption: z.enum(["A", "B", "C", "D"]),
+        // The worked solution and the answer that working arrived at. Optional
+        // here because a draft may be saved before the paper has been solved —
+        // only publishing needs them, and only complete.
+        solution: z.string().nullish(),
+        solvedOption: z.enum(["A", "B", "C", "D"]).nullish(),
         marks: z.number().nullable(),
         negativeMarks: z.number().nullable(),
         images: z.array(
@@ -382,6 +467,22 @@ export async function publishPaper(
     seen.add(key);
   }
 
+  // Publishing needs every question solved and every solution agreeing with the
+  // key; saving a draft needs neither, so an admin can upload today and solve
+  // tomorrow. The same pure rule runs in publishExam — a paper can be published
+  // from three screens and the answer has to be the same from all of them.
+  if (data.publish) {
+    const block = solutionsBlockingPublish(
+      data.questions.map((q) => ({
+        number: q.number,
+        solution: q.solution?.trim() ? q.solution : null,
+        solvedOption: q.solvedOption ?? null,
+        correctOption: q.correctOption,
+      })),
+    );
+    if (block) return fail(publishBlockMessage(block));
+  }
+
   await prisma.$transaction(async (tx) => {
     // A re-upload replaces the paper entirely.
     await tx.question.deleteMany({ where: { examId: data.examId } });
@@ -404,6 +505,8 @@ export async function publishPaper(
           sourceOptionC: isTamil ? (q.sourceOptionC ?? null) : null,
           sourceOptionD: isTamil ? (q.sourceOptionD ?? null) : null,
           correctOption: q.correctOption,
+          solution: q.solution?.trim() ? q.solution : null,
+          solvedOption: q.solvedOption ?? null,
           marks: q.marks,
           negativeMarks: q.negativeMarks,
           images: {
@@ -624,6 +727,11 @@ export async function reusePaperForBatch(
               sourceOptionC: question.sourceOptionC,
               sourceOptionD: question.sourceOptionD,
               correctOption: question.correctOption,
+              // The solutions travel with the copy. Without them the clone
+              // could not be published until the whole paper was solved a
+              // second time, which is a baffling way for a reuse to fail.
+              solution: question.solution,
+              solvedOption: question.solvedOption,
               marks: question.marks,
               negativeMarks: question.negativeMarks,
               images: {

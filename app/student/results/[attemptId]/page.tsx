@@ -1,4 +1,11 @@
-import { ArrowLeft, CheckCircle2, Clock, MinusCircle, XCircle } from "lucide-react";
+import {
+  ArrowLeft,
+  BookOpenCheck,
+  CheckCircle2,
+  Clock,
+  MinusCircle,
+  XCircle,
+} from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BrandMark } from "@/components/brand";
@@ -21,7 +28,7 @@ import {
 import { sweepIfExpired } from "@/lib/attempts";
 import { requireStudent } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { canShowResult } from "@/lib/exam-window";
+import { canShowResult, examPhase } from "@/lib/exam-window";
 import { cn, formatDateTime } from "@/lib/utils";
 
 export const metadata = { title: "Result · FirstBench" };
@@ -177,6 +184,15 @@ export default async function StudentResultPage({
                 <ArrowLeft /> My exams
               </Link>
             </Button>
+            {/* Only once the window has shut — a student who submitted early
+                must not read the solutions while the rest are still writing. */}
+            {examPhase(exam) === "CLOSED" && (
+              <Button asChild variant="secondary">
+                <Link href={`/student/exams/${exam.id}/solutions`}>
+                  <BookOpenCheck /> Solutions
+                </Link>
+              </Button>
+            )}
             <PrintButton />
           </div>
         }

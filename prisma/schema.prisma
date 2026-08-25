@@ -204,6 +204,13 @@ model Question {
   optionD       String
   correctOption OptionKey
 
+  /// The worked solution, shown to the batch once the exam window closes.
+  solution     String?
+  /// The answer that solution itself arrives at. Kept apart from correctOption
+  /// so the two can be compared: a paper cannot be published while the uploaded
+  /// answer key and its own solution disagree.
+  solvedOption OptionKey?
+
   /// On a Tamil paper the columns above hold the Tamil the students sit, and
   /// these hold the English it was translated from — kept so a term can be
   /// checked or the paper re-translated without re-reading the Word document.

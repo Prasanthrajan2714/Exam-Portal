@@ -254,6 +254,8 @@ function SavedQuestions({
     number: number;
     text: string;
     correctOption: "A" | "B" | "C" | "D" | null;
+    solution: string | null;
+    solvedOption: "A" | "B" | "C" | "D" | null;
     subject: { name: string };
     _count: { images: number };
   }[];
@@ -271,6 +273,7 @@ function SavedQuestions({
             <Th>Subject</Th>
             <Th>No.</Th>
             <Th>Question</Th>
+            <Th>Solution</Th>
             <Th>Answer</Th>
           </tr>
         </thead>
@@ -287,8 +290,31 @@ function SavedQuestions({
                   </span>
                 )}
               </Td>
+              {/* A worked solution runs to a paragraph, so it folds away rather
+                  than turning every row into a wall of text. */}
+              <Td className="max-w-sm align-top">
+                {q.solution ? (
+                  <details>
+                    <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                      Read solution
+                    </summary>
+                    <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed">
+                      {q.solution}
+                    </p>
+                  </details>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Not solved yet</span>
+                )}
+              </Td>
               <Td>
                 <Badge tone="success">{q.correctOption}</Badge>
+                {/* Publishing is blocked while these disagree, so showing the
+                    clash here is how an admin finds out which question to fix. */}
+                {q.solvedOption && q.solvedOption !== q.correctOption && (
+                  <Badge tone="danger" className="mt-1">
+                    solution says {q.solvedOption}
+                  </Badge>
+                )}
               </Td>
             </tr>
           ))}

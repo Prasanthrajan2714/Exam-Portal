@@ -7,7 +7,9 @@ import {
   Download,
   FileText,
   FileSpreadsheet,
+  HelpCircle,
   Languages,
+  Lightbulb,
   Loader2,
   RefreshCw,
   Upload,
@@ -17,7 +19,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { QuestionImage } from "@/components/question-image";
 import { Button } from "@/components/ui/button";
-import { Field, Input, Textarea } from "@/components/ui/field";
+import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import {
   Alert,
   Badge,
@@ -32,9 +34,11 @@ import { cn } from "@/lib/utils";
 import {
   type DraftPaper,
   type DraftQuestion,
+  type SolvedQuestion,
   type TranslatedQuestion,
   parsePaper,
   publishPaper,
+  solveQuestions,
   translateQuestions,
 } from "./actions";
 
@@ -49,6 +53,17 @@ const OPTIONS: OptionKey[] = ["A", "B", "C", "D"];
  * paper is fifteen requests rather than a hundred and eighty.
  */
 const TRANSLATION_BATCH = 12;
+
+/**
+ * Questions per solving request.
+ *
+ * Half the translation batch, because solving is the slower and dearer job:
+ * each question is worked out from scratch at high effort, so a batch is
+ * minutes rather than seconds. Six keeps the progress bar moving often enough
+ * that the admin can see it is alive, and keeps the cost of a failed batch to
+ * six questions' worth of thinking.
+ */
+const SOLUTION_BATCH = 6;
 
 export function PaperUploader({
   examId,
@@ -80,6 +95,15 @@ export function PaperUploader({
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [batches, setBatches] = useState<{ done: number; total: number } | null>(null);
 
+  // Worked solutions, keyed by the question's index. Same rule as the Tamil:
+  // solving costs money and minutes, so a run only picks up what is missing.
+  const [solutions, setSolutions] = useState<Record<number, SolvedQuestion>>({});
+  const [solving, setSolving] = useState(false);
+  const [solveError, setSolveError] = useState<string | null>(null);
+  const [solveBatches, setSolveBatches] = useState<
+    { done: number; total: number } | null
+  >(null);
+
   const blocking = useMemo(
     () =>
       questions.filter(
@@ -100,6 +124,40 @@ export function PaperUploader({
     [isTamil, questions, translations],
   );
 
+  /** Never solved — this is what a run, or a retry, works through. */
+  const notSolved = useMemo(
+    () => questions.filter((q) => !solutions[q.index]),
+    [questions, solutions],
+  );
+
+  /** No solution, or a solution the admin emptied. Blocks publishing either way. */
+  const unsolved = useMemo(
+    () => questions.filter((q) => !solutions[q.index]?.solution.trim()),
+    [questions, solutions],
+  );
+
+  /**
+   * The solution reached a different option from the answer key.
+   *
+   * This is the whole point of solving independently, and it is not a warning
+   * to be waved past: either the key is wrong — and every student who answered
+   * correctly would be marked down — or the solution is. The admin settles it.
+   */
+  const disagreeing = useMemo(
+    () =>
+      questions.filter((q) => {
+        const solved = solutions[q.index];
+        return Boolean(solved && q.correctOption && solved.answer !== q.correctOption);
+      }),
+    [questions, solutions],
+  );
+
+  /** Solved, but the model said it was unsure — usually an unseen diagram. */
+  const unsure = useMemo(
+    () => questions.filter((q) => solutions[q.index] && !solutions[q.index].confident),
+    [questions, solutions],
+  );
+
   function onParse(formData: FormData) {
     setError(null);
     formData.set("examId", examId);
@@ -111,10 +169,14 @@ export function PaperUploader({
       }
       setDraft(result.data);
       setQuestions(result.data.questions);
-      // A new document is a new paper — last upload's Tamil does not apply.
+      // A new document is a new paper — last upload's Tamil and solutions do
+      // not apply to it.
       setTranslations({});
       setTranslateError(null);
       setBatches(null);
+      setSolutions({});
+      setSolveError(null);
+      setSolveBatches(null);
       toast.success(result.message ?? "Document read");
     });
   }
@@ -175,6 +237,72 @@ export function PaperUploader({
     })();
   }
 
+  /**
+   * Works out every question that has no solution yet, a batch at a time.
+   *
+   * Same shape as the translation run, and for the same reasons: the admin
+   * decides when to spend the model's time, the run stops at the first failed
+   * batch rather than burning money on fourteen more that will fail the same
+   * way, and everything already solved is kept so the button resumes instead of
+   * starting over.
+   *
+   * The answer key is deliberately not sent. The model works the question out
+   * and says which option it reached; if it were shown the key it would only
+   * agree with it, and the check would be worth nothing.
+   */
+  function onSolve() {
+    const todo = notSolved;
+    if (todo.length === 0) return;
+
+    const runs = chunk(todo, SOLUTION_BATCH);
+    setSolveError(null);
+    setSolving(true);
+    setSolveBatches({ done: 0, total: runs.length });
+
+    void (async () => {
+      try {
+        for (const [i, run] of runs.entries()) {
+          const result = await solveQuestions({
+            examId,
+            questions: run.map((q) => ({
+              index: q.index,
+              subjectName: q.subjectName,
+              // The English original, even on a Tamil paper: it is the wording
+              // the board wrote, and solving a machine translation would stack
+              // one model's mistakes on another's. The exam's medium decides
+              // what language the solution comes back in.
+              text: q.text,
+              optionA: q.optionA,
+              optionB: q.optionB,
+              optionC: q.optionC,
+              optionD: q.optionD,
+              hasImages: q.images.length > 0,
+            })),
+          });
+
+          if (!result.ok || !result.data) {
+            setSolveError(result.message ?? "That batch could not be solved.");
+            return;
+          }
+
+          const done = result.data.solutions;
+          setSolutions((prev) => {
+            const next = { ...prev };
+            for (const s of done) next[s.index] = s;
+            return next;
+          });
+          setSolveBatches({ done: i + 1, total: runs.length });
+        }
+        toast.success(
+          `${todo.length} question(s) worked out. Read the solutions below — ` +
+            `especially any that disagree with your answer key.`,
+        );
+      } finally {
+        setSolving(false);
+      }
+    })();
+  }
+
   function onPublish(publish: boolean) {
     if (publish && blocking.length > 0) {
       toast.error(
@@ -188,6 +316,19 @@ export function PaperUploader({
       );
       return;
     }
+    // Drafts are saved unsolved on purpose — upload today, solve tomorrow.
+    if (publish && unsolved.length > 0) {
+      toast.error(
+        `${unsolved.length} question(s) have no worked solution yet. Work the solutions out before publishing.`,
+      );
+      return;
+    }
+    if (publish && disagreeing.length > 0) {
+      toast.error(
+        `The answer key and the solution disagree on ${disagreeing.length} question(s). Settle which is right before publishing.`,
+      );
+      return;
+    }
     startTransition(async () => {
       const result = await publishPaper({
         examId,
@@ -196,6 +337,7 @@ export function PaperUploader({
           // A Tamil paper is stored translated — the students read one
           // language — with the English kept underneath.
           const tamil = isTamil ? translations[q.index] : undefined;
+          const solved = solutions[q.index];
           return {
             subjectName: q.subjectName,
             number: q.number,
@@ -210,6 +352,10 @@ export function PaperUploader({
             sourceOptionC: tamil ? q.optionC : null,
             sourceOptionD: tamil ? q.optionD : null,
             correctOption: q.correctOption!,
+            // A half-solved paper still saves as a draft; these simply travel
+            // as null until the admin comes back and finishes it.
+            solution: solved?.solution.trim() ? solved.solution : null,
+            solvedOption: solved?.solution.trim() ? solved.answer : null,
             marks: q.marks,
             negativeMarks: q.negativeMarks,
             images: q.images,
@@ -237,6 +383,27 @@ export function PaperUploader({
       const current = prev[index];
       if (!current) return prev;
       return { ...prev, [index]: { ...current, ...patch } };
+    });
+  }
+
+  /**
+   * The admin has the last word on both the working and the answer it reached:
+   * editing either is how a disagreement with the key gets settled.
+   */
+  function updateSolution(index: number, patch: Partial<SolvedQuestion>) {
+    setSolutions((prev) => {
+      const current = prev[index];
+      // A patch for a question with no solution yet is the admin choosing to
+      // write one by hand, so start an entry rather than dropping the edit.
+      // "confident" is theirs by definition — it only ever means the model was
+      // unsure of its own working.
+      const base: SolvedQuestion = current ?? {
+        index,
+        solution: "",
+        answer: "A",
+        confident: true,
+      };
+      return { ...prev, [index]: { ...base, ...patch } };
     });
   }
 
@@ -338,7 +505,12 @@ export function PaperUploader({
   // ------------------------------------------------------------- review step
   return (
     <>
-      <div className={cn("mb-4 grid gap-4 sm:grid-cols-3", isTamil && "lg:grid-cols-4")}>
+      <div
+        className={cn(
+          "mb-4 grid gap-4 sm:grid-cols-3",
+          isTamil ? "lg:grid-cols-6" : "lg:grid-cols-5",
+        )}
+      >
         <Stat label="Questions read" value={questions.length} />
         <Stat
           label="Ready to publish"
@@ -358,6 +530,26 @@ export function PaperUploader({
             icon={<Languages />}
           />
         )}
+        <Stat
+          label="Solved"
+          value={`${questions.length - unsolved.length} / ${questions.length}`}
+          tone={unsolved.length > 0 ? "danger" : "success"}
+          icon={<Lightbulb />}
+          hint={
+            unsure.length > 0 ? `${unsure.length} the model was unsure of` : undefined
+          }
+        />
+        <Stat
+          label="Disagree with key"
+          value={disagreeing.length}
+          tone={disagreeing.length > 0 ? "danger" : "success"}
+          icon={<AlertTriangle />}
+          hint={
+            disagreeing.length > 0
+              ? `Q ${disagreeing.map((q) => q.number).join(", ")}`
+              : "The key and the solutions match"
+          }
+        />
       </div>
 
       {isTamil && (
@@ -370,6 +562,18 @@ export function PaperUploader({
           onTranslate={onTranslate}
         />
       )}
+
+      <SolutionPanel
+        total={questions.length}
+        remaining={notSolved.length}
+        unsolved={unsolved.length}
+        disagreeing={disagreeing.map((q) => q.number)}
+        unsure={unsure.map((q) => q.number)}
+        solving={solving}
+        batches={solveBatches}
+        error={solveError}
+        onSolve={onSolve}
+      />
 
       {/* Reconciliation against the exam's declared structure */}
       <Card className="mb-4">
@@ -428,8 +632,10 @@ export function PaperUploader({
             question={q}
             showTamil={isTamil}
             translation={translations[q.index]}
+            solution={solutions[q.index]}
             onChange={(patch) => update(q.index, patch)}
             onTranslationChange={(patch) => updateTranslation(q.index, patch)}
+            onSolutionChange={(patch) => updateSolution(q.index, patch)}
           />
         ))}
       </div>
@@ -437,25 +643,50 @@ export function PaperUploader({
       {/* ------------------------------------------------------- publish bar */}
       <Card className="sticky bottom-4 mt-6 shadow-lg">
         <CardBody className="flex flex-wrap items-center justify-between gap-4">
-          {untranslated.length > 0 ? (
-            <p className="text-sm text-danger">
-              {untranslated.length} of {questions.length} question(s) have no Tamil,
-              or have a Tamil field left blank. The paper cannot be saved until
-              every one is complete.
-            </p>
+          {untranslated.length > 0 || unsolved.length > 0 || disagreeing.length > 0 ? (
+            <div className="space-y-1 text-sm text-danger">
+              {untranslated.length > 0 && (
+                <p>
+                  {untranslated.length} of {questions.length} question(s) have no
+                  Tamil, or have a Tamil field left blank. The paper cannot be
+                  saved until every one is complete.
+                </p>
+              )}
+              {/* Why "Publish" is greyed out. The rule itself is enforced on the
+                  server; this is the sentence that explains the disabled button. */}
+              {unsolved.length > 0 && (
+                <p>
+                  Publishing is held back: {unsolved.length} question(s) still have
+                  no worked solution. You can save this as a draft now and finish
+                  the solutions later.
+                </p>
+              )}
+              {disagreeing.length > 0 && (
+                <p>
+                  Publishing is held back: the answer key and the worked solution
+                  disagree on question(s){" "}
+                  {disagreeing.map((q) => q.number).join(", ")}. Fix the key or the
+                  solution — a wrong key marks correct answers wrong. Saving as a
+                  draft is still fine.
+                </p>
+              )}
+            </div>
           ) : (
             <span />
           )}
           <div className="flex flex-wrap gap-2">
             <Button
               variant="secondary"
-              disabled={pending || translating}
+              disabled={pending || translating || solving}
               onClick={() => {
                 setDraft(null);
                 setQuestions([]);
                 setTranslations({});
                 setTranslateError(null);
                 setBatches(null);
+                setSolutions({});
+                setSolveError(null);
+                setSolveBatches(null);
                 setPaperName("");
                 setKeyName("");
                 formRef.current?.reset();
@@ -463,16 +694,34 @@ export function PaperUploader({
             >
               <ArrowLeft /> Upload different files
             </Button>
+            {/* Never gated on solutions: an unsolved paper is exactly what a
+                draft is for. Only an in-flight run holds it, because the save
+                would queue behind the whole run anyway. */}
             <Button
               variant="secondary"
-              disabled={pending || translating || untranslated.length > 0}
+              disabled={pending || translating || solving || untranslated.length > 0}
               onClick={() => onPublish(false)}
             >
               Save as draft
             </Button>
             <Button
               disabled={
-                pending || translating || blocking.length > 0 || untranslated.length > 0
+                pending ||
+                translating ||
+                solving ||
+                blocking.length > 0 ||
+                untranslated.length > 0 ||
+                unsolved.length > 0 ||
+                disagreeing.length > 0
+              }
+              title={
+                unsolved.length > 0
+                  ? `${unsolved.length} question(s) still need a worked solution.`
+                  : disagreeing.length > 0
+                    ? `The key and the solution disagree on question(s) ${disagreeing
+                        .map((q) => q.number)
+                        .join(", ")}.`
+                    : undefined
               }
               onClick={() => onPublish(true)}
             >
@@ -602,6 +851,164 @@ function TranslationPanel({
   );
 }
 
+/**
+ * The solving step, between reviewing the parsed paper and publishing it.
+ *
+ * A button rather than something automatic, for the translation panel's reason
+ * — a full paper is real money and a long wait, and that is the admin's call —
+ * and because what comes back has to be read before it means anything. The
+ * summary here is the headline: how much is solved, and where the model and the
+ * answer key do not agree.
+ */
+function SolutionPanel({
+  total,
+  remaining,
+  unsolved,
+  disagreeing,
+  unsure,
+  solving,
+  batches,
+  error,
+  onSolve,
+}: {
+  total: number;
+  /** Never solved. What the button will work through. */
+  remaining: number;
+  /** Never solved, or solved and then emptied. What blocks publishing. */
+  unsolved: number;
+  disagreeing: number[];
+  unsure: number[];
+  solving: boolean;
+  batches: { done: number; total: number } | null;
+  error: string | null;
+  onSolve: () => void;
+}) {
+  const solved = total - remaining;
+  const started = solved > 0;
+  const percent = total === 0 ? 0 : Math.round((solved / total) * 100);
+  const settled = unsolved === 0 && disagreeing.length === 0;
+
+  return (
+    <Card className={cn("mb-4", disagreeing.length > 0 && "border-danger")}>
+      <CardHeader className="flex flex-wrap items-center justify-between gap-2">
+        <CardTitle>Worked solutions</CardTitle>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={unsolved === 0 ? "success" : started ? "warning" : "neutral"}>
+            {total - unsolved} of {total} solved
+          </Badge>
+          <Badge tone={disagreeing.length > 0 ? "danger" : "success"}>
+            {disagreeing.length > 0
+              ? `${disagreeing.length} disagree with the key`
+              : "No disagreements with the key"}
+          </Badge>
+          {unsure.length > 0 && (
+            <Badge tone="warning">{unsure.length} the model was unsure of</Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardBody className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Each question is worked out from the question and its options alone —
+          the answer key is never shown to the model, so the option it arrives at
+          is a genuine second opinion on your key. Students see these solutions
+          once the exam window closes. Every solution below is editable, and this
+          paper cannot be published until all of them agree with the key.
+        </p>
+
+        {(solving || started) && (
+          <div>
+            <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                {solved} of {total} solved
+                {solving && batches
+                  ? ` · batch ${Math.min(batches.done + 1, batches.total)} of ${batches.total}`
+                  : ""}
+              </span>
+              <span className="tabular-nums">{percent}%</span>
+            </div>
+            <div
+              className="h-2 overflow-hidden rounded-full bg-surface-muted"
+              role="progressbar"
+              aria-valuenow={solved}
+              aria-valuemin={0}
+              aria-valuemax={total}
+              aria-label="Questions solved"
+            >
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-300"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <Alert tone="danger" title="The solving stopped">
+            {error}
+            {remaining > 0 && (
+              <span className="mt-1 block text-xs">
+                The {solved} question(s) already solved have been kept. Fix the
+                problem and retry the remaining {remaining}.
+              </span>
+            )}
+          </Alert>
+        )}
+
+        {disagreeing.length > 0 && (
+          <Alert
+            tone="danger"
+            title={`The key and the solution disagree on ${disagreeing.length} question(s)`}
+          >
+            Question(s) {disagreeing.join(", ")}. One of the two is wrong, and a
+            wrong answer key marks correct answers wrong for the whole batch.
+            Open each one below, read the working, and either correct the key or
+            correct the solution. Publishing stays blocked until they agree.
+          </Alert>
+        )}
+
+        {unsure.length > 0 && (
+          <Alert tone="warning" title={`${unsure.length} solution(s) the model was unsure of`}>
+            Question(s) {unsure.join(", ")}. Usually a question that turns on a
+            diagram the model cannot see. These are the ones worth reading
+            closely even when they agree with your key.
+          </Alert>
+        )}
+
+        {started && settled && !solving && (
+          <Alert tone="success" title="Every question is solved and agrees with the key">
+            The paper can be published.
+          </Alert>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button disabled={solving || remaining === 0} onClick={onSolve}>
+            {solving ? (
+              <Loader2 className="animate-spin" />
+            ) : started ? (
+              <RefreshCw />
+            ) : (
+              <Lightbulb />
+            )}
+            {solving
+              ? "Working them out…"
+              : remaining === 0
+                ? "Everything is solved"
+                : started
+                  ? `Solve the remaining ${remaining}`
+                  : `Work out the solutions for ${total} question(s)`}
+          </Button>
+          {solving && (
+            <span className="text-xs text-muted-foreground">
+              Solving is slower than translating — a full paper takes a while.
+              Leave this page open.
+            </span>
+          )}
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
 function optionValue(q: DraftQuestion, key: OptionKey): string {
   return key === "A" ? q.optionA : key === "B" ? q.optionB : key === "C" ? q.optionC : q.optionD;
 }
@@ -614,17 +1021,24 @@ function QuestionEditor({
   question,
   showTamil,
   translation,
+  solution,
   onChange,
   onTranslationChange,
+  onSolutionChange,
 }: {
   question: DraftQuestion;
   showTamil: boolean;
   translation?: TranslatedQuestion;
+  solution?: SolvedQuestion;
   onChange: (patch: Partial<DraftQuestion>) => void;
   onTranslationChange: (patch: Partial<TranslatedQuestion>) => void;
+  onSolutionChange: (patch: Partial<SolvedQuestion>) => void;
 }) {
   const missingAnswer = !question.correctOption;
   const needsTamil = showTamil && tamilMissing(question, translation);
+  const disagrees = Boolean(
+    solution && question.correctOption && solution.answer !== question.correctOption,
+  );
   const hasProblem =
     missingAnswer ||
     !question.text ||
@@ -633,13 +1047,19 @@ function QuestionEditor({
   const stemImages = question.images.filter((i) => i.target === "STEM");
 
   return (
-    <Card className={cn((hasProblem || needsTamil) && "border-danger")}>
+    <Card className={cn((hasProblem || needsTamil || disagrees) && "border-danger")}>
       <CardHeader className="flex flex-wrap items-center justify-between gap-2 py-3">
         <div className="flex items-center gap-2">
           <Badge tone={question.subjectName ? "primary" : "danger"}>
             {question.subjectName || "No subject"}
           </Badge>
           <span className="text-sm font-semibold">Question {question.number}</span>
+          {disagrees && (
+            <Badge tone="danger">
+              <AlertTriangle className="size-3" /> Key says {question.correctOption},
+              solution says {solution!.answer}
+            </Badge>
+          )}
         </div>
         {hasProblem ? (
           <span className="flex items-center gap-1.5 text-xs font-medium text-danger">
@@ -733,6 +1153,13 @@ function QuestionEditor({
             onChange={onTranslationChange}
           />
         )}
+
+        <SolutionReview
+          index={question.index}
+          keyAnswer={question.correctOption}
+          solution={solution}
+          onChange={onSolutionChange}
+        />
 
         {missingAnswer && (
           <p className="text-xs font-medium text-danger">
@@ -873,6 +1300,136 @@ function tamilMissing(q: DraftQuestion, t: TranslatedQuestion | undefined): bool
   if (!t) return true;
   if (q.text.trim() && !t.text.trim()) return true;
   return OPTIONS.some((k) => optionValue(q, k).trim() && !tamilOption(t, k).trim());
+}
+
+/**
+ * The worked solution for one question, and the answer it arrived at.
+ *
+ * Both are editable because the admin is the final word on both: when the
+ * solution and the key disagree, settling it means either correcting the key
+ * (the radio buttons above) or correcting the solution here. The disagreement
+ * is stated in full — which option each side chose — rather than left as a
+ * coloured border, because it is the one thing on this screen that stops the
+ * paper going out.
+ */
+function SolutionReview({
+  index,
+  keyAnswer,
+  solution,
+  onChange,
+}: {
+  index: number;
+  keyAnswer: OptionKey | null;
+  solution?: SolvedQuestion;
+  onChange: (patch: Partial<SolvedQuestion>) => void;
+}) {
+  if (!solution) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-app)] border border-dashed border-border-strong bg-surface-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        <span>
+          No worked solution yet. Run &ldquo;Work out the solutions&rdquo; above —
+          the paper can be saved as a draft without it, but not published.
+        </span>
+        {/* Writing one by hand has to be possible: otherwise a paper is stuck
+            unpublishable whenever the API is unavailable, and an admin who
+            would rather write their own explanation has no way to. */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => onChange({ solution: "", answer: keyAnswer ?? "A", confident: true })}
+        >
+          Write one myself
+        </Button>
+      </div>
+    );
+  }
+
+  const disagrees = Boolean(keyAnswer && solution.answer !== keyAnswer);
+  const blank = !solution.solution.trim();
+
+  return (
+    <div
+      className={cn(
+        "space-y-3 rounded-[var(--radius-app)] border p-3",
+        disagrees
+          ? "border-danger bg-danger-soft/20"
+          : "border-border-strong bg-surface-muted/40",
+      )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <Lightbulb className="size-3.5" aria-hidden /> Worked solution · students
+          see this after the window closes
+        </span>
+        {!solution.confident && (
+          <span className="flex items-center gap-1.5 text-xs font-medium text-warning">
+            <HelpCircle className="size-3.5" /> The model was not confident here —
+            read it carefully
+          </span>
+        )}
+      </div>
+
+      {disagrees && (
+        <p className="flex items-start gap-1.5 text-sm font-semibold text-danger">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span>
+            This solution disagrees with your answer key. The key says{" "}
+            {keyAnswer}; the working arrives at {solution.answer}. One of them is
+            wrong — correct the key with the radio buttons above, or fix the
+            working and the answer below. Publishing is blocked until they agree.
+          </span>
+        </p>
+      )}
+
+      <Field
+        label="The working"
+        htmlFor={`sol-${index}`}
+        error={blank ? "A blank solution blocks publishing. Write it, or solve it again." : undefined}
+      >
+        <Textarea
+          id={`sol-${index}`}
+          value={solution.solution}
+          onChange={(e) => onChange({ solution: e.target.value })}
+          className={cn("min-h-28", blank && "border-danger")}
+        />
+      </Field>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Field
+          label="Answer this solution reaches"
+          htmlFor={`sol-answer-${index}`}
+          hint="Change this if you have rewritten the working."
+        >
+          <Select
+            id={`sol-answer-${index}`}
+            value={solution.answer}
+            onChange={(e) => onChange({ answer: e.target.value as OptionKey })}
+            className={cn("h-8 text-sm", disagrees && "border-danger")}
+          >
+            {OPTIONS.map((k) => (
+              <option key={k} value={k}>
+                Option {k}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field label="Answer key" htmlFor={`sol-key-${index}`}>
+          <p
+            id={`sol-key-${index}`}
+            className={cn(
+              "flex h-8 items-center rounded-[var(--radius-app)] border border-border px-3 text-sm",
+              disagrees ? "text-danger" : "text-success",
+            )}
+          >
+            {keyAnswer ? `Option ${keyAnswer}` : "No answer chosen yet"}
+            {keyAnswer && !disagrees && " · agrees"}
+          </p>
+        </Field>
+      </div>
+    </div>
+  );
 }
 
 function ImageThumb({

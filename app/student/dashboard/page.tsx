@@ -2,7 +2,12 @@ import { EmptyState, PageHeader, Stat } from "@/components/ui/primitives";
 import { sweepIfExpired } from "@/lib/attempts";
 import { requireStudent } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { canShowResult, examCardSection, examCardStatus } from "@/lib/exam-window";
+import {
+  canShowResult,
+  examCardSection,
+  examCardStatus,
+  examPhase,
+} from "@/lib/exam-window";
 import { formatDate, formatTime } from "@/lib/utils";
 import { ExamCard, type ExamCardData } from "./exam-card";
 
@@ -79,6 +84,9 @@ export default async function StudentDashboard() {
       windowLabel: `${formatTime(exam.startsAt)} – ${formatTime(exam.endsAt)}`,
       status,
       resultAvailable: canShowResult(exam, now),
+      // The window, not the attempt: the solutions page itself refuses anything
+      // still open, so this flag only decides whether the link is worth showing.
+      solutionsAvailable: examPhase(exam, now) === "CLOSED",
       totalScore: attempt?.totalScore ?? null,
       maxScore: exam._count.questions * exam.marksPerCorrect,
     };

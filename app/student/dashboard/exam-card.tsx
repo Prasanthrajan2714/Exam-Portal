@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BookOpenCheck,
   CalendarClock,
   CheckCircle2,
   Clock,
@@ -44,6 +45,12 @@ export type ExamCardData = {
   dateLabel: string;
   status: ExamCardStatus;
   resultAvailable: boolean;
+  /**
+   * Solutions open to the whole batch once the window shuts — so this is the
+   * window, not the attempt: a student who submitted early still waits, and one
+   * who never sat the exam still gets them.
+   */
+  solutionsAvailable: boolean;
   totalScore: number | null;
   maxScore: number;
 };
@@ -166,6 +173,16 @@ export function ExamCard({ exam }: { exam: ExamCardData }) {
             <p className="inline-flex items-center gap-1.5 text-right text-xs text-danger">
               <XCircle className="size-3.5" /> The window closed before you started
             </p>
+          )}
+
+          {/* Offered for every closed exam, not just the ones this student sat:
+              a missed paper is exactly when its solutions are worth reading. */}
+          {exam.solutionsAvailable && (
+            <Button asChild variant="secondary" size="sm">
+              <Link href={`/student/exams/${exam.examId}/solutions`}>
+                <BookOpenCheck /> View solutions
+              </Link>
+            </Button>
           )}
         </div>
       </CardBody>

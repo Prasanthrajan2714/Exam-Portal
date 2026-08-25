@@ -192,6 +192,28 @@ export function examCardSection(status: ExamCardStatus): ExamCardSection {
   }
 }
 
+/**
+ * May this student read this exam's worked solutions?
+ *
+ * Open to the whole batch once the window shuts, including students who never
+ * sat it — the paper is over and the solutions are teaching material from that
+ * point on. Deliberately keyed on the window rather than the student's own
+ * attempt: someone who submitted early must not be able to read the answers
+ * while the rest of the room is still writing.
+ *
+ * A rule rather than four conditions inline in a page, because loosening any
+ * one of them by accident hands out an unsat paper's answers.
+ */
+export function canReadSolutions(
+  student: { batchId: string },
+  exam: ExamTiming & { batchId: string; status: "DRAFT" | "PUBLISHED" },
+  now: Date = new Date(),
+): boolean {
+  if (exam.batchId !== student.batchId) return false;
+  if (exam.status !== "PUBLISHED") return false;
+  return examPhase(exam, now) === "CLOSED";
+}
+
 /** Whether a result may be shown to the student yet. */
 export function canShowResult(
   exam: ExamTiming & { resultVisibility: "IMMEDIATE" | "AFTER_WINDOW" },
