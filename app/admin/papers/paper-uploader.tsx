@@ -278,7 +278,14 @@ export function PaperUploader({
               optionB: q.optionB,
               optionC: q.optionC,
               optionD: q.optionD,
-              hasImages: q.images.length > 0,
+              // A draft image has no order of its own yet; its index in this
+              // list is the order it will be saved with, and what the [[#n]]
+              // markers in the text already refer to.
+              images: q.images.map((image, order) => ({
+                target: image.target,
+                order,
+                path: image.path,
+              })),
             })),
           });
 

@@ -297,7 +297,15 @@ const solveSchema = z.object({
         optionC: z.string(),
         optionD: z.string(),
         /** Lets the model say "I cannot see this diagram" instead of guessing. */
-        hasImages: z.boolean(),
+        images: z
+          .array(
+            z.object({
+              target: z.string(),
+              order: z.number().int().min(0),
+              path: z.string(),
+            }),
+          )
+          .default([]),
       }),
     )
     .min(1, "There is nothing to solve.")
@@ -926,7 +934,10 @@ export async function solveSavedQuestions(
       optionC: true,
       optionD: true,
       subject: { select: { name: true } },
-      _count: { select: { images: true } },
+      images: {
+        select: { target: true, order: true, path: true },
+        orderBy: { order: "asc" },
+      },
     },
   });
   if (questions.length === 0) return fail("Those questions are no longer on file.");
@@ -944,7 +955,7 @@ export async function solveSavedQuestions(
         optionB: q.optionB,
         optionC: q.optionC,
         optionD: q.optionD,
-        hasImages: q._count.images > 0,
+        images: q.images,
       })),
       exam.medium,
     );

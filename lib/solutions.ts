@@ -1,6 +1,10 @@
 import "server-only";
+import fs from "node:fs/promises";
+import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import { termsForQuestion } from "./glossary";
+import { layoutQuestion } from "./question-layout";
+import { resolveUploadPath } from "./uploads";
 
 /**
  * Worked solutions for a question paper.
@@ -20,8 +24,13 @@ export type SolvableQuestion = {
   optionB: string;
   optionC: string;
   optionD: string;
-  /** True when a question carries diagrams the model cannot see. */
-  hasImages: boolean;
+  /**
+   * The diagrams and equations belonging to this question. They are sent to
+   * the model, not merely counted: a maths paper writes every option as an
+   * equation image, and a solver that cannot see them has to guess which letter
+   * its own correct answer belongs to.
+   */
+  images: { target: string; order: number; path: string }[];
 };
 
 export type SolvedQuestion = {
@@ -142,10 +151,12 @@ function system(medium: "ENGLISH" | "TAMIL"): string {
 
 Solve each question yourself, from the question and its options alone. You have not been told which option the examiner marked correct, and you must not try to infer it from the wording — work the problem and report what you get.
 
+Papers from Word carry their equations and diagrams as pictures, so a question's text may read as though something is missing from it — "the value of [image 3] is" — and an option may be a picture and nothing else. The pictures are attached, each one following the question it belongs to and numbered as its text refers to it. Read them. They are usually the mathematics itself, and an option you have not looked at is one you cannot rule out.
+
 For each question:
 1. Work it out. Show the reasoning a student needs: the principle or formula, the substitution, the arithmetic. Keep it to the point — a few sentences, or a short sequence of steps.
-2. State which option that working arrives at.
-3. Say whether you are confident. Set confident to false when the question depends on a diagram you cannot see, is ambiguous, appears to have no correct option among the four, or you are genuinely unsure. A false here is useful; a confident wrong answer is not.
+2. State which option that working arrives at. Match your result against what each option actually says, including the ones given as pictures; do not report a letter you have not checked.
+3. Say whether you are confident. Set confident to false when the question depends on something you genuinely cannot read, is ambiguous, appears to have no correct option among the four, or you are otherwise unsure. A false here is useful; a confident wrong answer is not. Where an image was attached and legible, "I cannot see it" is not a reason — look again.
 
 ${language}
 
@@ -181,35 +192,104 @@ const TOOL: Anthropic.Tool = {
   strict: true,
 };
 
-/**
- * Turns image markers into a named gap.
- *
- * Deleting them instead would hand the model a sentence with a hole in it and
- * no sign there was ever anything there — "The common tangent to the circles
- * also passes through the point:" reads like a complete question. Saying where
- * the gap is is what lets it report that the working depends on something it
- * cannot see, rather than guessing.
- */
-function gaps(text: string): string {
-  return text.replace(/\[\[#\d+\]\]/g, "[an image you cannot see]");
+/** The formats the API accepts. A .wmf that never rasterised is not one. */
+const IMAGE_MEDIA_TYPES: Record<string, "image/png" | "image/jpeg" | "image/gif" | "image/webp"> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
+
+async function loadImage(
+  relative: string,
+): Promise<{ mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string } | null> {
+  const absolute = resolveUploadPath(relative);
+  if (!absolute) return null;
+  const mediaType = IMAGE_MEDIA_TYPES[path.extname(absolute).toLowerCase()];
+  if (!mediaType) return null;
+  try {
+    const bytes = await fs.readFile(absolute);
+    return { mediaType, data: bytes.toString("base64") };
+  } catch {
+    return null;
+  }
 }
 
-function render(q: SolvableQuestion, glossary: string): string {
-  return [
+/**
+ * One question as content: its text with every image referenced by number, then
+ * the images themselves in that order.
+ *
+ * Sending the pictures is what makes the answer usable. A maths paper writes
+ * each option as an equation image, so a solver given only the words works the
+ * question out correctly and then has to guess which letter its own answer is.
+ * That is not a hypothetical: "x² + y² = 4a²", correct, was recorded against
+ * option A when it was option C — and reported as a disagreement with a key that
+ * was right all along.
+ */
+export async function prepareForSolving(
+  q: SolvableQuestion,
+  glossary = "",
+): Promise<Anthropic.ContentBlockParam[]> {
+  const images: Anthropic.ImageBlockParam[] = [];
+  let unreadable = 0;
+  let shown = 0;
+
+  const field = async (text: string, target: string): Promise<string> => {
+    const mine = q.images.filter((i) => i.target === target);
+    const byOrder = new Map(mine.map((i) => [i.order, i]));
+    const parts = layoutQuestion(
+      text,
+      mine.map((i) => i.order),
+    );
+
+    let out = "";
+    for (const part of parts) {
+      if (part.kind === "text") {
+        out += part.value;
+        continue;
+      }
+      const image = byOrder.get(part.order);
+      if (!image) continue;
+
+      const loaded = await loadImage(image.path);
+      if (!loaded) {
+        // Say where the hole is. A sentence with a silent gap in it looks
+        // complete, and looking complete is what invites a guess.
+        unreadable += 1;
+        out += " [an image that could not be shown to you] ";
+        continue;
+      }
+      shown += 1;
+      images.push({
+        type: "image",
+        source: { type: "base64", media_type: loaded.mediaType, data: loaded.data },
+      });
+      out += ` [image ${shown}] `;
+    }
+    return out.replace(/\s+/g, " ").trim();
+  };
+
+  const text = [
     `<question index="${q.index}" subject="${q.subjectName}">`,
     glossary,
-    q.hasImages
-      ? `Note: this question carries a diagram or formula image you cannot see. If the working depends on it, say so and set confident to false.`
+    `Question: ${await field(q.text, "STEM")}`,
+    `A: ${await field(q.optionA, "A")}`,
+    `B: ${await field(q.optionB, "B")}`,
+    `C: ${await field(q.optionC, "C")}`,
+    `D: ${await field(q.optionD, "D")}`,
+    shown > 0
+      ? `The ${shown} image(s) referenced above follow this question, in order.`
       : "",
-    `Question: ${gaps(q.text)}`,
-    `A: ${gaps(q.optionA)}`,
-    `B: ${gaps(q.optionB)}`,
-    `C: ${gaps(q.optionC)}`,
-    `D: ${gaps(q.optionD)}`,
+    unreadable > 0
+      ? `${unreadable} image(s) here could not be shown to you. If the working depends on one of them, say so and set confident to false.`
+      : "",
     `</question>`,
   ]
     .filter(Boolean)
     .join("\n");
+
+  return [{ type: "text", text }, ...images];
 }
 
 /**
@@ -249,9 +329,17 @@ export async function solveBatch(
       const glossary = terms.length
         ? `Approved terminology: ${terms.map((t) => `"${t.term}" -> ${t.tamil}`).join("; ")}`
         : "";
-      return render(q, glossary);
+      return prepareForSolving(q, glossary);
     }),
   );
+
+  const content: Anthropic.ContentBlockParam[] = [
+    {
+      type: "text",
+      text: `Solve these ${questions.length} question(s). Each question's images follow it, numbered as its text references them.`,
+    },
+    ...rendered.flat(),
+  ];
 
   const stream = client.messages.stream({
     model: "claude-opus-5",
@@ -262,12 +350,7 @@ export async function solveBatch(
     output_config: { effort: "high" },
     tools: [TOOL],
     tool_choice: { type: "tool", name: "record_solutions" },
-    messages: [
-      {
-        role: "user",
-        content: `Solve these ${questions.length} question(s).\n\n${rendered.join("\n\n")}`,
-      },
-    ],
+    messages: [{ role: "user", content }],
   });
 
   const response = await stream.finalMessage();
