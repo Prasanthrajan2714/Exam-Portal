@@ -2,6 +2,7 @@ import "server-only";
 import fs from "node:fs/promises";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
+import sharp from "sharp";
 import { termsForQuestion } from "./glossary";
 import { layoutQuestion } from "./question-layout";
 import { resolveUploadPath } from "./uploads";
@@ -201,6 +202,17 @@ const IMAGE_MEDIA_TYPES: Record<string, "image/png" | "image/jpeg" | "image/gif"
   ".webp": "image/webp",
 };
 
+/**
+ * Longest side an attached image may have.
+ *
+ * A request carrying several images caps each at 2000 pixels, and Word
+ * rasterises its equations far past that — a one-line formula in this portal's
+ * own uploads reached 10560 pixels wide. Sent as they are, the whole batch is
+ * refused. The cap sits below the limit rather than on it, and these are
+ * displayed around 150 pixels wide, so nothing legible is being given up.
+ */
+const MAX_IMAGE_DIMENSION = 1500;
+
 async function loadImage(
   relative: string,
 ): Promise<{ mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string } | null> {
@@ -208,10 +220,33 @@ async function loadImage(
   if (!absolute) return null;
   const mediaType = IMAGE_MEDIA_TYPES[path.extname(absolute).toLowerCase()];
   if (!mediaType) return null;
+
   try {
-    const bytes = await fs.readFile(absolute);
+    let bytes = await fs.readFile(absolute);
+
+    const image = sharp(bytes, { animated: mediaType === "image/gif" });
+    const meta = await image.metadata();
+    const longest = Math.max(meta.width ?? 0, meta.height ?? 0);
+
+    if (longest > MAX_IMAGE_DIMENSION) {
+      // Re-encoded as PNG whatever it arrived as: these are line art, where PNG
+      // is both smaller and sharper than a re-compressed JPEG.
+      bytes = await image
+        .resize({
+          width: MAX_IMAGE_DIMENSION,
+          height: MAX_IMAGE_DIMENSION,
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .png()
+        .toBuffer();
+      return { mediaType: "image/png", data: bytes.toString("base64") };
+    }
+
     return { mediaType, data: bytes.toString("base64") };
   } catch {
+    // A file that has gone, or one sharp cannot read, is a gap the caller
+    // declares rather than a reason to lose the whole batch.
     return null;
   }
 }

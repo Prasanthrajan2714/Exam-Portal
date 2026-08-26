@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 import { afterAll, describe, expect, it } from "vitest";
 import { prepareForSolving, type SolvableQuestion } from "@/lib/solutions";
 import { ensureDir, resolveUploadPath } from "@/lib/uploads";
@@ -173,5 +174,67 @@ describe("prepareForSolving", () => {
       }),
     );
     expect(imagesOf(blocks)).toHaveLength(0);
+  });
+});
+
+describe("images too large for the request", () => {
+  /** PNG dimensions, straight out of the IHDR chunk. */
+  function pngSize(data: Buffer): { width: number; height: number } {
+    expect(data.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    return { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
+  }
+
+  it("shrinks one past the limit rather than losing the batch", async () => {
+    // A request carrying several images caps each at 2000 pixels. Word
+    // rasterises a one-line equation far past that — 10560 pixels wide in this
+    // portal's own uploads — and the API refuses the whole batch, so nine
+    // questions fail over one picture.
+    const wide = await sharp({
+      create: {
+        width: 4000,
+        height: 300,
+        channels: 3,
+        background: { r: 255, g: 255, b: 255 },
+      },
+    })
+      .png()
+      .toBuffer();
+
+    const blocks = await prepareForSolving(
+      question({
+        text: "Given [[#0]], find x.",
+        images: [{ target: "STEM", order: 0, path: await writeImage("wide.png", wide) }],
+      }),
+    );
+
+    const [image] = imagesOf(blocks);
+    expect(image, "the image must still be sent").toBeDefined();
+
+    const source = (image as { source: { media_type: string; data: string } }).source;
+    const size = pngSize(Buffer.from(source.data, "base64"));
+    expect(Math.max(size.width, size.height)).toBeLessThanOrEqual(2000);
+    // The shape is kept: a squashed equation is no easier to read than a
+    // missing one. Compared as a ratio, since whole pixels cannot land on it
+    // exactly.
+    const ratio = size.width / size.height;
+    expect(Math.abs(ratio - 4000 / 300) / (4000 / 300)).toBeLessThan(0.02);
+  });
+
+  it("leaves an image inside the limit exactly as it is", async () => {
+    const small = await sharp({
+      create: { width: 400, height: 80, channels: 3, background: { r: 255, g: 255, b: 255 } },
+    })
+      .png()
+      .toBuffer();
+
+    const blocks = await prepareForSolving(
+      question({
+        text: "Given [[#0]], find x.",
+        images: [{ target: "STEM", order: 0, path: await writeImage("small.png", small) }],
+      }),
+    );
+
+    const source = (imagesOf(blocks)[0] as { source: { data: string } }).source;
+    expect(Buffer.from(source.data, "base64").equals(small)).toBe(true);
   });
 });
