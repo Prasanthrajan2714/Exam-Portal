@@ -1,4 +1,5 @@
 import "server-only";
+import { NOTE_MAX_BYTES, formatFileSize, noteFileError } from "./note-file";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -235,45 +236,19 @@ export async function copyExamDocument(
 
 // ---------------------------------------------------------------- study notes
 
-/** Cap on a single study-note upload. */
-export const NOTE_MAX_BYTES = 20 * 1024 * 1024;
+/**
+ * PDF only, and no larger than the cap: the student side hands the file straight
+ * to the browser's viewer, so accepting arbitrary types would mean serving
+ * whatever an admin picked back to a class.
+ *
+ * The rule itself lives in a module the browser can import too, because a file
+ * over the cap never arrives whole for the server to reject.
+ */
+export { NOTE_MAX_BYTES, formatFileSize, noteFileError };
 
 /** Directory holding one batch's study notes, relative to the upload root. */
 export function noteDir(batchId: string): string {
   return path.join("notes", sanitiseSegment(batchId));
-}
-
-/** "1.4 MB" — used on both the admin table and the student note cards. */
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${Math.round(kb)} KB`;
-  return `${(kb / 1024).toFixed(1)} MB`;
-}
-
-/**
- * Checks an uploaded note before anything touches the disk. PDF only, because
- * the student side hands the file straight to the browser's viewer — accepting
- * arbitrary types would mean serving whatever an admin picked back to a class.
- * Returns a message to show the admin, or null when the file is fine.
- */
-export function noteFileError(file: unknown): string | null {
-  if (!(file instanceof File) || file.size === 0) {
-    return "Choose a PDF file to upload.";
-  }
-  if (file.size > NOTE_MAX_BYTES) {
-    return `That file is ${formatFileSize(file.size)}. Study material must be ` +
-      `${formatFileSize(NOTE_MAX_BYTES)} or smaller — split it into parts if it is bigger.`;
-  }
-  // Some browsers send an empty type for a drag-dropped file, so the extension
-  // is a fallback rather than the only check; the magic bytes below are final.
-  const looksPdf =
-    file.type === "application/pdf" ||
-    (file.type === "" && path.extname(file.name).toLowerCase() === ".pdf");
-  if (!looksPdf) {
-    return "Study material must be a PDF. Save or export the document as PDF and try again.";
-  }
-  return null;
 }
 
 /**

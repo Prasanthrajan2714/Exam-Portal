@@ -18,14 +18,15 @@ import {
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Alert } from "@/components/ui/primitives";
 import type { ActionResult } from "@/lib/action-result";
+import { NOTE_MAX_BYTES, formatFileSize, noteFileError } from "@/lib/note-file";
 import { createNote } from "./actions";
 
 type Option = { id: string; name: string };
 
-function Submit() {
+function Submit({ blocked }: { blocked: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending}>
+    <Button type="submit" disabled={pending || blocked}>
       {pending ? <Loader2 className="animate-spin" /> : <Upload />}
       Upload material
     </Button>
@@ -43,6 +44,7 @@ export function NoteFormDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [fileName, setFileName] = useState("");
+  const [fileProblem, setFileProblem] = useState<string | null>(null);
 
   const [state, formAction] = useActionState<ActionResult, FormData>(
     async (previous, formData) => {
@@ -50,6 +52,7 @@ export function NoteFormDialog({
       if (result.ok) {
         toast.success(result.message ?? "Uploaded");
         setFileName("");
+        setFileProblem(null);
         setOpen(false);
       }
       return result;
@@ -58,7 +61,15 @@ export function NoteFormDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        // The form resets on reopen; the message about the last file must go
+        // with it, or it sits there condemning a file nobody chose.
+        if (!next) setFileProblem(null);
+      }}
+    >
       <DialogTrigger asChild>
         <Button>
           <Upload /> Upload material
@@ -132,12 +143,12 @@ export function NoteFormDialog({
             />
           </Field>
 
-          <Field label="PDF file" required error={state.fieldErrors?.file}>
+          <Field label="PDF file" required error={fileProblem ?? state.fieldErrors?.file}>
             <label className="flex cursor-pointer flex-col items-center justify-center rounded-[var(--radius-app)] border-2 border-dashed border-border-strong bg-surface-muted/50 px-6 py-6 text-center transition-colors hover:border-primary hover:bg-primary-soft/30">
               <FileText className="mb-2 size-7 text-muted-foreground" />
               <span className="font-medium">{fileName || "Choose a PDF"}</span>
               <span className="mt-1 text-xs text-muted-foreground">
-                PDF only, up to 20 MB
+                PDF only, up to {formatFileSize(NOTE_MAX_BYTES)}
               </span>
               <input
                 type="file"
@@ -145,7 +156,14 @@ export function NoteFormDialog({
                 accept="application/pdf,.pdf"
                 required
                 className="sr-only"
-                onChange={(e) => setFileName(e.target.files?.[0]?.name ?? "")}
+                onChange={(e) => {
+                  const chosen = e.target.files?.[0];
+                  setFileName(chosen?.name ?? "");
+                  // Checked here because a file over the cap never reaches the
+                  // server whole: the body is truncated in transit and the
+                  // parser fails on a half a form, naming nothing useful.
+                  setFileProblem(chosen ? noteFileError(chosen) : null);
+                }}
               />
             </label>
           </Field>
@@ -156,7 +174,7 @@ export function NoteFormDialog({
                 Cancel
               </Button>
             </DialogClose>
-            <Submit />
+            <Submit blocked={Boolean(fileProblem)} />
           </DialogFooter>
         </form>
       </DialogContent>
