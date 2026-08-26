@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Document, ImageRun, Packer, Paragraph, TextRun } from "docx";
 import { afterAll, describe, expect, it } from "vitest";
+import { layoutQuestion, questionPlainText } from "@/lib/question-layout";
 import { parseQuestionPaper } from "@/lib/docx-parser";
 import { resolveUploadPath, uploadRoot } from "@/lib/uploads";
 
@@ -67,7 +68,16 @@ describe("images embedded in a question paper", () => {
     const [first, second] = result.questions;
     const stemImages = first.images.filter((i) => i.target === "STEM");
     expect(stemImages).toHaveLength(1);
-    expect(first.text).toBe("Identify the circuit shown below.");
+    // The text keeps a marker where the document had the image, so it can be
+    // put back in the same place. Here that is the end of the sentence; in a
+    // maths paper the equation sits mid-sentence and the position is the whole
+    // point. The number is the image's index in this question's own list.
+    expect(first.text).toBe("Identify the circuit shown below. [[#0]]");
+    expect(questionPlainText(first.text)).toBe("Identify the circuit shown below.");
+    expect(layoutQuestion(first.text, [0])).toEqual([
+      { kind: "text", value: "Identify the circuit shown below. " },
+      { kind: "image", order: 0 },
+    ]);
 
     // Q2's figure sits inside option A, not the stem.
     const optionImages = second.images.filter((i) => i.target === "A");

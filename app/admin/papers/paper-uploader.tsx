@@ -18,7 +18,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Formula } from "@/components/formula";
-import { QuestionImage } from "@/components/question-image";
+import { QuestionText } from "@/components/question-text";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import {
@@ -1046,7 +1046,14 @@ function QuestionEditor({
     !question.text ||
     OPTIONS.some((k) => !optionValue(question, k) && !hasImage(question, k));
 
-  const stemImages = question.images.filter((i) => i.target === "STEM");
+  // A draft image has no id or order yet — its index in the question list is
+  // exactly the order it will be saved with, and what a [[#n]] marker means.
+  const placed = question.images.map((image, order) => ({
+    ...image,
+    id: String(order),
+    order,
+  }));
+  const stemImages = placed.filter((i) => i.target === "STEM");
 
   return (
     <Card className={cn((hasProblem || needsTamil || disagrees) && "border-danger")}>
@@ -1095,18 +1102,28 @@ function QuestionEditor({
           />
         </Field>
 
-        {stemImages.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {stemImages.map((img) => (
-              <ImageThumb key={img.path} image={img} />
-            ))}
+        {/* The box above holds the source, where an image mid-sentence is a
+            [[#n]] marker. This is how the question will actually read. */}
+        {(stemImages.length > 0 || question.text) && (
+          <div className="rounded-[var(--radius-app)] border border-border bg-surface px-3 py-2">
+            <p className="mb-1 text-[0.7rem] font-semibold uppercase tracking-wide text-muted-foreground">
+              How it will read
+            </p>
+            <QuestionText
+              text={question.text}
+              images={stemImages}
+              alt="Part of the question"
+              fallbackWidth={220}
+              fallbackHeight={220}
+              className="block text-sm leading-relaxed"
+            />
           </div>
         )}
 
         <div className="grid gap-2 sm:grid-cols-2">
           {OPTIONS.map((key) => {
             const value = optionValue(question, key);
-            const images = question.images.filter((i) => i.target === key);
+            const images = placed.filter((i) => i.target === key);
             const selected = question.correctOption === key;
             return (
               <div
@@ -1136,11 +1153,14 @@ function QuestionEditor({
                   placeholder={`Option ${key}`}
                 />
                 {images.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {images.map((img) => (
-                      <ImageThumb key={img.path} image={img} small />
-                    ))}
-                  </div>
+                  <QuestionText
+                    text={value}
+                    images={images}
+                    alt={'Option ' + key}
+                    fallbackWidth={90}
+                    fallbackHeight={90}
+                    className="mt-1.5 block text-xs"
+                  />
                 )}
               </div>
             );
@@ -1443,23 +1463,6 @@ function SolutionReview({
         </Field>
       </div>
     </div>
-  );
-}
-
-function ImageThumb({
-  image,
-  small,
-}: {
-  image: DraftQuestion["images"][number];
-  small?: boolean;
-}) {
-  return (
-    <QuestionImage
-      image={image}
-      alt="Question diagram"
-      fallbackWidth={small ? 90 : 220}
-      fallbackHeight={small ? 90 : 220}
-    />
   );
 }
 

@@ -106,12 +106,17 @@ function htmlToFragments(html: string): Fragment[] {
 
   return withBreaks.split("\n").map((rawLine) => {
     const images: FragmentImage[] = [];
-    // Image placeholders were injected by encodeImageRef.
+    // Image placeholders were injected by encodeImageRef. Each leaves a token
+    // behind rather than a space: a maths paper writes the relation itself as an
+    // equation image mid-sentence, and dropping the position turns "the common
+    // tangent to the circles [x²+y²=4 and …] also passes through" into "the
+    // common tangent to the circles also passes through" with the equation
+    // stranded underneath.
     const withoutImages = rawLine.replace(
       /<img[^>]*src="upload:([^"]+)"[^>]*>/gi,
       (_match, src: string) => {
-        images.push(decodeImageRef(decodeHtml(src)));
-        return " ";
+        const slot = images.push(decodeImageRef(decodeHtml(src))) - 1;
+        return ` [[slot:${slot}]] `;
       },
     );
     const text = cleanText(withoutImages);
@@ -170,6 +175,50 @@ function decodeImageRef(src: string): FragmentImage {
   // A bare path stays valid — it just means no size was recorded.
   if (!match) return { path: src, width: 0, height: 0 };
   return { path: match[3], width: Number(match[1]), height: Number(match[2]) };
+}
+
+/** Where a fragment's own image sat, before the question owns it. */
+const SLOT_RE = /\[\[slot:(\d+)\]\]/g;
+
+/**
+ * Moves a fragment's images onto the question under `target`, and rewrites the
+ * slot tokens in `text` to the position each image ends up at.
+ *
+ * The number in the stored marker is the image's index in the question's own
+ * list, which is exactly the `order` it is saved with — so rendering can find it
+ * again with no extra column.
+ *
+ * Images whose token did not survive are still kept, appended to the end as they
+ * always were. A paper is not worth losing a diagram over, and every question
+ * stored before markers existed reads that way too.
+ */
+function attachImages(
+  question: ParsedQuestion,
+  fragment: Fragment,
+  target: "STEM" | OptionKey,
+  text: string,
+): string {
+  const placed = new Set<number>();
+
+  const marked = text.replace(SLOT_RE, (_match, slot: string) => {
+    const image = fragment.images[Number(slot)];
+    if (!image) return "";
+    placed.add(Number(slot));
+    const order = question.images.length;
+    question.images.push({ ...image, target });
+    return `[[#${order}]]`;
+  });
+
+  fragment.images.forEach((image, slot) => {
+    if (!placed.has(slot)) question.images.push({ ...image, target });
+  });
+
+  return marked.replace(/\s+/g, " ").trim();
+}
+
+/** Drops slot tokens from text that is being thrown away or matched against. */
+function withoutSlots(text: string): string {
+  return text.replace(SLOT_RE, "").replace(/\s+/g, " ").trim();
 }
 
 // ---------------------------------------------------------------- patterns
@@ -261,16 +310,14 @@ export async function parseQuestionPaper(
         index: questions.length,
         subjectName: currentSubject,
         number: Number(questionMatch[1]),
-        text: questionMatch[2].trim(),
+        text: "",
         options: { A: "", B: "", C: "", D: "" },
         images: [],
         issues: [],
       };
       cursor = "STEM";
       lastNumber.set(currentSubject, Number(questionMatch[1]));
-      for (const image of fragment.images) {
-        current.images.push({ ...image, target: "STEM" });
-      }
+      current.text = attachImages(current, fragment, "STEM", questionMatch[2].trim());
       if (!currentSubject) {
         warnings.push({
           line,
@@ -284,11 +331,8 @@ export async function parseQuestionPaper(
     const optionMatch = text.match(OPTION_RE);
     if (optionMatch && current) {
       const key = optionMatch[1].toUpperCase() as OptionKey;
-      current.options[key] = optionMatch[2].trim();
+      current.options[key] = attachImages(current, fragment, key, optionMatch[2].trim());
       cursor = key;
-      for (const image of fragment.images) {
-        current.images.push({ ...image, target: key });
-      }
       return;
     }
 
@@ -296,7 +340,9 @@ export async function parseQuestionPaper(
     // The number only exists as list formatting, so the list item itself is the
     // signal. Nested items are the options of the item above them, which is how
     // a paper with automatically lettered options is laid out.
-    if (fragment.orderedDepth === 1 && text) {
+    // A line holding nothing but an image is not a new question, whatever list
+    // formatting it carries — it is a continuation of the one above.
+    if (fragment.orderedDepth === 1 && withoutSlots(text)) {
       flush();
       const number = (lastNumber.get(currentSubject) ?? 0) + 1;
       lastNumber.set(currentSubject, number);
@@ -305,15 +351,13 @@ export async function parseQuestionPaper(
         index: questions.length,
         subjectName: currentSubject,
         number,
-        text,
+        text: "",
         options: { A: "", B: "", C: "", D: "" },
         images: [],
         issues: [],
       };
       cursor = "STEM";
-      for (const image of fragment.images) {
-        current.images.push({ ...image, target: "STEM" });
-      }
+      current.text = attachImages(current, fragment, "STEM", text);
       if (!currentSubject) {
         warnings.push({
           line,
@@ -328,32 +372,27 @@ export async function parseQuestionPaper(
         (key) => !current!.options[key] && !current!.images.some((i) => i.target === key),
       );
       if (slot) {
-        current.options[slot] = text;
+        current.options[slot] = attachImages(current, fragment, slot, text);
         cursor = slot;
-        for (const image of fragment.images) {
-          current.images.push({ ...image, target: slot });
-        }
         return;
       }
     }
 
     // --- continuation of whatever we are inside
     if (current && cursor) {
-      if (text) {
+      const marked = attachImages(current, fragment, cursor, text);
+      if (marked) {
         if (cursor === "STEM") {
-          current.text = `${current.text} ${text}`.trim();
+          current.text = `${current.text} ${marked}`.trim();
         } else {
-          current.options[cursor] = `${current.options[cursor]} ${text}`.trim();
+          current.options[cursor] = `${current.options[cursor]} ${marked}`.trim();
         }
-      }
-      for (const image of fragment.images) {
-        current.images.push({ ...image, target: cursor });
       }
       return;
     }
 
     // --- stray content outside any question
-    if (text && !current) {
+    if (withoutSlots(text) && !current) {
       warnings.push({
         line,
         message: `Ignored text outside any question: “${text.slice(0, 60)}${

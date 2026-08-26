@@ -181,6 +181,19 @@ const TOOL: Anthropic.Tool = {
   strict: true,
 };
 
+/**
+ * Turns image markers into a named gap.
+ *
+ * Deleting them instead would hand the model a sentence with a hole in it and
+ * no sign there was ever anything there — "The common tangent to the circles
+ * also passes through the point:" reads like a complete question. Saying where
+ * the gap is is what lets it report that the working depends on something it
+ * cannot see, rather than guessing.
+ */
+function gaps(text: string): string {
+  return text.replace(/\[\[#\d+\]\]/g, "[an image you cannot see]");
+}
+
 function render(q: SolvableQuestion, glossary: string): string {
   return [
     `<question index="${q.index}" subject="${q.subjectName}">`,
@@ -188,11 +201,11 @@ function render(q: SolvableQuestion, glossary: string): string {
     q.hasImages
       ? `Note: this question carries a diagram or formula image you cannot see. If the working depends on it, say so and set confident to false.`
       : "",
-    `Question: ${q.text}`,
-    `A: ${q.optionA}`,
-    `B: ${q.optionB}`,
-    `C: ${q.optionC}`,
-    `D: ${q.optionD}`,
+    `Question: ${gaps(q.text)}`,
+    `A: ${gaps(q.optionA)}`,
+    `B: ${gaps(q.optionB)}`,
+    `C: ${gaps(q.optionC)}`,
+    `D: ${gaps(q.optionD)}`,
     `</question>`,
   ]
     .filter(Boolean)

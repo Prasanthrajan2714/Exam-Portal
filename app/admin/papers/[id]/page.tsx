@@ -112,6 +112,8 @@ export default async function PaperPage({
       width: i.width,
       height: i.height,
       target: i.target,
+      // What a [[#n]] marker in the text points at.
+      order: i.order,
     })),
   });
 

@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { BrandMark } from "@/components/brand";
 import { Formula } from "@/components/formula";
 import { PrintButton } from "@/components/print-button";
-import { QuestionImage } from "@/components/question-image";
+import { QuestionText } from "@/components/question-text";
 import { Button } from "@/components/ui/button";
 import {
   Badge,
@@ -122,23 +122,14 @@ export default async function ExamSolutionsPage({
                     <span className="text-sm font-semibold">Q{q.number}</span>
                   </div>
 
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                    {q.text}
-                  </p>
-
-                  {stemImages.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {stemImages.map((img) => (
-                        <QuestionImage
-                          key={img.id}
-                          image={img}
-                          alt="Question diagram"
-                          fallbackWidth={320}
-                          fallbackHeight={240}
-                        />
-                      ))}
-                    </div>
-                  )}
+                  <QuestionText
+                    text={q.text}
+                    images={stemImages}
+                    alt="Part of the question"
+                    fallbackWidth={320}
+                    fallbackHeight={240}
+                    className="block text-sm leading-relaxed"
+                  />
 
                   <div className="mt-3 grid gap-1.5 sm:grid-cols-2">
                     {OPTIONS.map((key) => {
@@ -162,22 +153,14 @@ export default async function ExamSolutionsPage({
                           )}
                         >
                           <span className="font-semibold">{key}.</span>
-                          <span className="flex-1">
-                            <span className="block">{text}</span>
-                            {optionImages.length > 0 && (
-                              <span className="mt-2 flex flex-wrap gap-2">
-                                {optionImages.map((img) => (
-                                  <QuestionImage
-                                    key={img.id}
-                                    image={img}
-                                    alt={`Option ${key}`}
-                                    fallbackWidth={200}
-                                    fallbackHeight={150}
-                                  />
-                                ))}
-                              </span>
-                            )}
-                          </span>
+                          <QuestionText
+                            text={text}
+                            images={optionImages}
+                            alt={`Option ${key}`}
+                            fallbackWidth={200}
+                            fallbackHeight={150}
+                            className="flex-1"
+                          />
                           {isCorrect && (
                             <span className="text-xs font-medium text-success">
                               correct

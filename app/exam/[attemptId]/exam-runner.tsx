@@ -25,7 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Alert } from "@/components/ui/primitives";
-import { QuestionImage } from "@/components/question-image";
+import { QuestionText } from "@/components/question-text";
 import { formatDuration } from "@/lib/exam-window";
 import { cn } from "@/lib/utils";
 
@@ -38,8 +38,10 @@ export type RunnerQuestion = {
   text: string;
   options: Record<OptionKey, string>;
   images: {
+    id: string;
     path: string;
     target: string;
+    order: number;
     /** Size the source document laid this out at; null for anything stored before that was kept. */
     width: number | null;
     height: number | null;
@@ -448,23 +450,16 @@ export function ExamRunner({
               )}
             </div>
 
-            <p className="whitespace-pre-wrap text-base leading-relaxed">
-              {current.text}
-            </p>
-
-            {stemImages.length > 0 && (
-              <div className="mt-4 flex flex-wrap gap-3">
-                {stemImages.map((img) => (
-                  <QuestionImage
-                    key={img.path}
-                    image={img}
-                    alt="Question diagram"
-                    fallbackWidth={480}
-                    fallbackHeight={360}
-                  />
-                ))}
-              </div>
-            )}
+            {/* The equation in a maths question is usually an image sitting
+                inside the sentence, so the two are laid out together. */}
+            <QuestionText
+              text={current.text}
+              images={stemImages}
+              alt="Part of the question"
+              fallbackWidth={480}
+              fallbackHeight={360}
+              className="block text-base leading-relaxed"
+            />
 
             <div className="mt-6 space-y-2.5">
               {OPTIONS.map((key) => {
@@ -492,22 +487,14 @@ export function ExamRunner({
                       {key}
                     </span>
                     <span className="flex-1">
-                      <span className="block text-sm leading-relaxed">
-                        {current.options[key]}
-                      </span>
-                      {optionImages.length > 0 && (
-                        <span className="mt-2 flex flex-wrap gap-2">
-                          {optionImages.map((img) => (
-                            <QuestionImage
-                              key={img.path}
-                              image={img}
-                              alt={`Option ${key}`}
-                              fallbackWidth={200}
-                              fallbackHeight={150}
-                            />
-                          ))}
-                        </span>
-                      )}
+                      <QuestionText
+                        text={current.options[key]}
+                        images={optionImages}
+                        alt={`Option ${key}`}
+                        fallbackWidth={200}
+                        fallbackHeight={150}
+                        className="block text-sm leading-relaxed"
+                      />
                     </span>
                   </button>
                 );

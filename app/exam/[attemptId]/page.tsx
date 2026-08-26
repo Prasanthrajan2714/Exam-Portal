@@ -79,8 +79,12 @@ export default async function ExamPage({
       D: q.optionD,
     },
     images: q.images.map((i) => ({
+      id: i.id,
       path: i.path,
       target: i.target,
+      // Position in the question's own list, which is what a [[#n]] marker in
+      // the text refers to.
+      order: i.order,
       width: i.width,
       height: i.height,
     })),

@@ -6,7 +6,7 @@ import { useActionState, useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { toast } from "sonner";
 import { Formula } from "@/components/formula";
-import { QuestionImage, type QuestionImageSource } from "@/components/question-image";
+import { QuestionText, type PlacedImage } from "@/components/question-text";
 import { Button } from "@/components/ui/button";
 import { Field, Textarea } from "@/components/ui/field";
 import { Badge } from "@/components/ui/primitives";
@@ -31,7 +31,7 @@ export type DisagreeingQuestion = {
   solvedOption: OptionKey | null;
   solution: string;
   /** Diagrams and equations from the document, by where they belong. */
-  images: (QuestionImageSource & { id: string; target: "STEM" | OptionKey })[];
+  images: (PlacedImage & { target: "STEM" | OptionKey })[];
 };
 
 function Submit({ number, unsolved }: { number: number; unsolved: boolean }) {
@@ -103,25 +103,18 @@ export function SettleQuestion({ question }: { question: DisagreeingQuestion }) 
         </span>
       </div>
 
-      <p className="whitespace-pre-wrap text-sm leading-relaxed">{question.text}</p>
-
-      {/* Without these the question is unreadable here: a maths paper puts the
-          whole relation in an equation image, leaving a stem like "If , then the
-          value of r is" — and this screen exists precisely so the admin can
+      {/* Without the images the question is unreadable here: a maths paper puts
+          the whole relation in an equation image, leaving a stem like "If , then
+          the value of r is" — and this screen exists precisely so the admin can
           judge the answer for themselves. */}
-      {stemImages.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          {stemImages.map((img) => (
-            <QuestionImage
-              key={img.id}
-              image={img}
-              alt="Part of the question"
-              fallbackWidth={320}
-              fallbackHeight={240}
-            />
-          ))}
-        </div>
-      )}
+      <QuestionText
+        text={question.text}
+        images={stemImages}
+        alt="Part of the question"
+        fallbackWidth={320}
+        fallbackHeight={240}
+        className="block text-sm leading-relaxed"
+      />
 
       <fieldset className="space-y-2">
         <legend className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -147,21 +140,14 @@ export function SettleQuestion({ question }: { question: DisagreeingQuestion }) 
                 aria-label={`Option ${key}`}
               />
               <span className="font-semibold">{key}.</span>
-              <span className="flex-1">
-                <span className="block">{texts[key]}</span>
-                {question.images
-                  .filter((i) => i.target === key)
-                  .map((img) => (
-                    <QuestionImage
-                      key={img.id}
-                      image={img}
-                      alt={`Option ${key}`}
-                      fallbackWidth={200}
-                      fallbackHeight={150}
-                      className="mt-1"
-                    />
-                  ))}
-              </span>
+              <QuestionText
+                text={texts[key]}
+                images={question.images.filter((i) => i.target === key)}
+                alt={`Option ${key}`}
+                fallbackWidth={200}
+                fallbackHeight={150}
+                className="flex-1"
+              />
               <span className="flex shrink-0 gap-1">
                 {question.correctOption === key && (
                   <Badge tone="neutral">your key</Badge>

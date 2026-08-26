@@ -49,6 +49,7 @@ Rules, in order of priority:
 3. TRANSLATE EVERYTHING ELSE NATURALLY. The stem and the options should read as a Tamil examination paper, not as word-for-word English.
 4. PRESERVE MEANING PRECISELY. These are graded questions: a distractor that becomes correct, or a negation that is dropped, makes the paper wrong. Keep "not", "except", "incorrect" and similar exactly as forceful as in the English.
 5. DO NOT ANSWER, EXPLAIN OR RENUMBER. Translate only. Keep the four options in their original order — option A must remain option A.
+6. KEEP THE IMAGE MARKERS. A marker like [[#0]] stands for a diagram or an equation printed at that exact spot in the question. Reproduce every marker unchanged, in a position that reads correctly in Tamil. Never translate one, renumber one, drop one, or invent one.
 
 Return only the translation, through the provided tool.`;
 
