@@ -39,6 +39,7 @@ import {
 } from "@/lib/solutions";
 import { cn, formatDate, formatTime } from "@/lib/utils";
 import { publishExam } from "@/app/admin/exams/actions";
+import { EditQuestion } from "./edit-question";
 import { ReplacePaper } from "./replace-paper";
 import { ReusePaperDialog } from "./reuse-form";
 import { SettleQuestion } from "./settle-form";
@@ -96,7 +97,7 @@ export default async function PaperPage({
   // The images come along: a maths paper puts the whole relation in an equation
   // image, and both screens below exist so the admin can judge the answer for
   // themselves — which is impossible looking at "If , then the value of r is".
-  const editable = (q: (typeof existing)[number], solution: string) => ({
+  const forReview = (q: (typeof existing)[number], solution: string) => ({
     id: q.id,
     number: q.number,
     subjectName: q.subject.name,
@@ -128,7 +129,7 @@ export default async function PaperPage({
     : existing
         .filter((q) => solutionState(q) !== "SOLVED")
         .map((q) => ({
-          ...editable(q, ""),
+          ...forReview(q, ""),
           note: solutionState(q) === "UNANSWERABLE" ? (q.solution ?? "") : "",
         }));
 
@@ -137,7 +138,7 @@ export default async function PaperPage({
   // with the means to settle them rather than only named in an error.
   const disagreeing = locked
     ? []
-    : existing.filter(disagreesWithKey).map((q) => editable(q, q.solution ?? ""));
+    : existing.filter(disagreesWithKey).map((q) => forReview(q, q.solution ?? ""));
 
   return (
     <>
@@ -369,7 +370,7 @@ export default async function PaperPage({
             results that have already been recorded. The paper can still be run
             again for another batch.
           </Alert>
-          <SavedQuestions questions={existing} />
+          <SavedQuestions questions={existing} editable={!locked} />
         </>
       ) : existing.length > 0 ? (
         <>
@@ -384,7 +385,7 @@ export default async function PaperPage({
 
           {/* View and reuse only: this section is not where a paper is changed
               or thrown away. */}
-          <SavedQuestions questions={existing} />
+          <SavedQuestions questions={existing} editable={!locked} />
         </>
       ) : (
         // A paper is attached while its exam is being set up, so an exam still
@@ -421,6 +422,7 @@ export default async function PaperPage({
 function SavedQuestions({
   questions,
   action,
+  editable = false,
 }: {
   questions: {
     id: string;
@@ -444,6 +446,8 @@ function SavedQuestions({
     }[];
   }[];
   action?: React.ReactNode;
+  /** Whether a question may still be corrected — false once anyone has sat it. */
+  editable?: boolean;
 }) {
   const OPTIONS = ["A", "B", "C", "D"] as const;
 
@@ -480,6 +484,7 @@ function SavedQuestions({
                 {disagrees && (
                   <Badge tone="danger">solution says {q.solvedOption}</Badge>
                 )}
+                {editable && <EditQuestion question={q} />}
               </div>
 
               <QuestionText

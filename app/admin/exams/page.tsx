@@ -60,9 +60,10 @@ export default async function ExamsPage() {
               <tr>
                 <Th>Exam</Th>
                 <Th>Batch</Th>
+                <Th>Subjects</Th>
+                <Th>Medium</Th>
                 <Th>Schedule</Th>
-                <Th>Paper</Th>
-                <Th>Attempts</Th>
+                <Th>No. of questions</Th>
                 <Th>Status</Th>
                 <Th className="text-right">Actions</Th>
               </tr>
@@ -92,11 +93,18 @@ export default async function ExamsPage() {
                       >
                         {exam.name}
                       </Link>
-                      <p className="text-xs text-muted-foreground">
-                        {exam.examSubjects.map((s) => s.subject.name).join(" · ")}
-                      </p>
                     </Td>
                     <Td className="text-muted-foreground">{exam.batch.name}</Td>
+                    <Td className="text-xs text-muted-foreground">
+                      {exam.examSubjects.length === 0
+                        ? "—"
+                        : exam.examSubjects.map((s) => s.subject.name).join(" · ")}
+                    </Td>
+                    <Td>
+                      <Badge tone={exam.medium === "TAMIL" ? "info" : "neutral"}>
+                        {exam.medium === "TAMIL" ? "Tamil" : "English"}
+                      </Badge>
+                    </Td>
                     <Td className="text-muted-foreground">
                       <p className="text-xs">{formatDate(exam.startsAt)}</p>
                       <p className="text-xs">
@@ -120,9 +128,6 @@ export default async function ExamsPage() {
                           {exam._count.questions} / {expected}
                         </span>
                       )}
-                    </Td>
-                    <Td className="tabular-nums text-muted-foreground">
-                      {exam._count.attempts}
                     </Td>
                     <Td>
                       <Badge tone={status.tone}>{status.label}</Badge>

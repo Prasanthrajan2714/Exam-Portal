@@ -13,7 +13,9 @@ import {
 } from "@/components/ui/primitives";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { examPhase } from "@/lib/exam-window";
 import { formatDate } from "@/lib/utils";
+import { DownloadPaper } from "./download-paper";
 
 export const metadata = { title: "Question papers · Admin" };
 
@@ -180,7 +182,6 @@ export default async function PapersPage({
                     <Th>Paper</Th>
                     <Th>Batch</Th>
                     <Th>Date</Th>
-                    <Th>Medium</Th>
                     <Th>Questions</Th>
                     <Th className="text-right">Action</Th>
                   </tr>
@@ -192,6 +193,10 @@ export default async function PapersPage({
                       0,
                     );
                     const complete = exam._count.questions === expected && expected > 0;
+                    // The paper may only leave the building once the room has
+                    // finished with it.
+                    const finished =
+                      exam.status === "PUBLISHED" && examPhase(exam) === "CLOSED";
                     return (
                       <tr key={exam.id}>
                         <Td>
@@ -215,15 +220,6 @@ export default async function PapersPage({
                         <Td className="text-muted-foreground">
                           {formatDate(exam.startsAt)}
                         </Td>
-                        {/* The language the questions are stored in — a Tamil
-                            paper reads nothing like its English sibling. */}
-                        <Td>
-                          {exam.medium === "TAMIL" ? (
-                            <Badge tone="info">Tamil</Badge>
-                          ) : (
-                            <Badge tone="neutral">English</Badge>
-                          )}
-                        </Td>
                         <Td>
                           {exam._count.questions === 0 ? (
                             <Badge tone="warning">Not uploaded</Badge>
@@ -243,12 +239,17 @@ export default async function PapersPage({
                           )}
                         </Td>
                         <Td className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                          {finished && exam._count.questions > 0 && (
+                            <DownloadPaper examId={exam.id} examName={exam.name} />
+                          )}
                           <Button asChild variant="secondary" size="sm">
                             <Link href={`/admin/papers/${exam.id}`}>
                               <Eye />
                               Preview
                             </Link>
                           </Button>
+                          </div>
                         </Td>
                       </tr>
                     );

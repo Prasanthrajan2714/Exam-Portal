@@ -991,3 +991,129 @@ export async function solveSavedQuestions(
     );
   }
 }
+
+const editSchema = z.object({
+  questionId: z.string().min(1),
+  text: z.string().trim(),
+  optionA: z.string().trim(),
+  optionB: z.string().trim(),
+  optionC: z.string().trim(),
+  optionD: z.string().trim(),
+  correctOption: z.enum(["A", "B", "C", "D"]),
+  solution: z.string().trim(),
+});
+
+/**
+ * Corrects a saved question in place — its wording, its options, its key.
+ *
+ * A parser reading someone else's Word document gets things slightly wrong: a
+ * stray character, an option that ran onto the wrong line, a key mistyped in the
+ * spreadsheet. Until now the only remedy was replacing the entire paper, which
+ * throws away every other question's worked solution to fix a typo in one.
+ *
+ * Editing the wording invalidates the working, which was written about the old
+ * wording — so when the text or the options change, `solvedOption` is cleared
+ * and the question falls back to unsolved. That reopens the publish gate on
+ * purpose: a solution that agreed with the key before the question was reworded
+ * is not evidence about the question as it now reads.
+ */
+export async function editQuestion(
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    await requireAdmin();
+  } catch (error) {
+    return fail(authErrorMessage(error) ?? "Not allowed");
+  }
+
+  const parsed = editSchema.safeParse({
+    questionId: formData.get("questionId"),
+    text: formData.get("text"),
+    optionA: formData.get("optionA"),
+    optionB: formData.get("optionB"),
+    optionC: formData.get("optionC"),
+    optionD: formData.get("optionD"),
+    correctOption: formData.get("correctOption"),
+    solution: formData.get("solution") ?? "",
+  });
+  if (!parsed.success) {
+    return fail("Please fix the highlighted fields.", zodFieldErrors(parsed.error));
+  }
+  const input = parsed.data;
+
+  const question = await prisma.question.findUnique({
+    where: { id: input.questionId },
+    select: {
+      number: true,
+      examId: true,
+      text: true,
+      optionA: true,
+      optionB: true,
+      optionC: true,
+      optionD: true,
+      solvedOption: true,
+      images: { select: { target: true } },
+      exam: { select: { _count: { select: { attempts: true } } } },
+    },
+  });
+  if (!question) return fail("Question not found.");
+
+  if (question.exam._count.attempts > 0) {
+    return fail(
+      "Students have already attempted this exam, so its questions can no longer be changed.",
+    );
+  }
+
+  // An option may be empty only when it carries a diagram instead — a
+  // graph-choice question has four pictures and no words.
+  const missing = (["A", "B", "C", "D"] as const).filter(
+    (key) =>
+      !input[`option${key}` as const] &&
+      !question.images.some((i) => i.target === key),
+  );
+  if (missing.length > 0) {
+    return fail(
+      `Option ${missing.join(", ")} would be left empty, and ${
+        missing.length > 1 ? "none of them carry" : "it does not carry"
+      } an image instead.`,
+    );
+  }
+  if (!input.text && !question.images.some((i) => i.target === "STEM")) {
+    return fail("The question would be left with neither text nor a diagram.", {
+      text: "Write the question, or keep its diagram.",
+    });
+  }
+
+  const reworded =
+    input.text !== question.text ||
+    input.optionA !== question.optionA ||
+    input.optionB !== question.optionB ||
+    input.optionC !== question.optionC ||
+    input.optionD !== question.optionD;
+
+  await prisma.question.update({
+    where: { id: input.questionId },
+    data: {
+      text: input.text,
+      optionA: input.optionA,
+      optionB: input.optionB,
+      optionC: input.optionC,
+      optionD: input.optionD,
+      correctOption: input.correctOption,
+      solution: input.solution || null,
+      // The working was written about the wording that has just changed, so it
+      // is no longer a second opinion on this question. Publishing asks for it
+      // again rather than trusting the old agreement.
+      solvedOption: reworded ? null : question.solvedOption,
+    },
+  });
+
+  revalidatePath(`/admin/papers/${question.examId}`);
+  revalidatePath(`/admin/exams/${question.examId}`);
+  return ok(
+    reworded
+      ? `Question ${question.number} updated. Its worked solution needs checking again.`
+      : `Question ${question.number} updated.`,
+  );
+}
