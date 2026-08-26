@@ -1,10 +1,10 @@
 import {
   AlertTriangle,
   ArrowLeft,
+  BookOpenCheck,
   CalendarDays,
   Clock,
   FilePlus2,
-  ImageIcon,
   Lightbulb,
   Pencil,
   Scale,
@@ -14,6 +14,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ConfirmButton } from "@/components/confirm-button";
 import { Formula } from "@/components/formula";
+import { QuestionText } from "@/components/question-text";
 import { Button } from "@/components/ui/button";
 import {
   Alert,
@@ -36,7 +37,7 @@ import {
   solutionState,
   solutionsConfigured,
 } from "@/lib/solutions";
-import { formatDate, formatTime } from "@/lib/utils";
+import { cn, formatDate, formatTime } from "@/lib/utils";
 import { publishExam } from "@/app/admin/exams/actions";
 import { ReplacePaper } from "./replace-paper";
 import { ReusePaperDialog } from "./reuse-form";
@@ -404,6 +405,19 @@ export default async function PaperPage({
   );
 }
 
+/**
+ * The saved paper, laid out to be read rather than scanned.
+ *
+ * This was a table: the question clamped to one line, the solution folded behind
+ * a "Read solution" toggle, and the images reduced to the words "3 image(s)" —
+ * which on a maths paper meant the equations, the only part of the question that
+ * says anything, were the part not shown. Checking a paper meant opening every
+ * row and still not seeing it.
+ *
+ * One block per question now, in the order a person reads: the question with its
+ * diagrams in place, the four options with the key marked, then the working
+ * underneath.
+ */
 function SavedQuestions({
   questions,
   action,
@@ -412,74 +426,115 @@ function SavedQuestions({
     id: string;
     number: number;
     text: string;
+    optionA: string;
+    optionB: string;
+    optionC: string;
+    optionD: string;
     correctOption: "A" | "B" | "C" | "D" | null;
     solution: string | null;
     solvedOption: "A" | "B" | "C" | "D" | null;
     subject: { name: string };
-    _count: { images: number };
+    images: {
+      id: string;
+      path: string;
+      width: number | null;
+      height: number | null;
+      order: number;
+      target: string;
+    }[];
   }[];
   action?: React.ReactNode;
 }) {
+  const OPTIONS = ["A", "B", "C", "D"] as const;
+
   return (
     <Card className="mb-6">
       <CardHeader className="flex flex-wrap items-center justify-between gap-2">
         <CardTitle>Saved questions</CardTitle>
         {action}
       </CardHeader>
-      <Table>
-        <thead>
-          <tr>
-            <Th>Subject</Th>
-            <Th>No.</Th>
-            <Th>Question</Th>
-            <Th>Solution</Th>
-            <Th>Answer</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {questions.map((q) => (
-            <tr key={q.id}>
-              <Td className="text-muted-foreground">{q.subject.name}</Td>
-              <Td className="tabular-nums">{q.number}</Td>
-              <Td>
-                <span className="line-clamp-1">{q.text || "—"}</span>
-                {q._count.images > 0 && (
-                  <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                    <ImageIcon className="size-3" /> {q._count.images} image(s)
-                  </span>
+      <CardBody className="space-y-4">
+        {questions.map((q) => {
+          const texts: Record<(typeof OPTIONS)[number], string> = {
+            A: q.optionA,
+            B: q.optionB,
+            C: q.optionC,
+            D: q.optionD,
+          };
+          const disagrees = q.solvedOption && q.solvedOption !== q.correctOption;
+
+          return (
+            <div
+              key={q.id}
+              className="rounded-[var(--radius-app)] border border-border p-4"
+            >
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <Badge tone="primary">{q.subject.name}</Badge>
+                <span className="text-sm font-semibold">Q{q.number}</span>
+                <span className="flex-1" />
+                {q.correctOption && (
+                  <Badge tone="success">Answer {q.correctOption}</Badge>
                 )}
-              </Td>
-              {/* A worked solution runs to a paragraph, so it folds away rather
-                  than turning every row into a wall of text. */}
-              <Td className="max-w-sm align-top">
-                {q.solution ? (
-                  <details>
-                    <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-                      Read solution
-                    </summary>
-                    <Formula
-                      text={q.solution}
-                      className="mt-1 block text-xs leading-relaxed"
-                    />
-                  </details>
-                ) : (
-                  <span className="text-xs text-muted-foreground">Not solved yet</span>
-                )}
-              </Td>
-              <Td>
-                <Badge tone="success">{q.correctOption}</Badge>
                 {/* Publishing is blocked while these disagree, so showing the
-                    clash here is how an admin finds out which question to fix. */}
-                {q.solvedOption && q.solvedOption !== q.correctOption && (
-                  <Badge tone="danger" className="mt-1">
-                    solution says {q.solvedOption}
-                  </Badge>
+                    clash here is how an admin finds the question to fix. */}
+                {disagrees && (
+                  <Badge tone="danger">solution says {q.solvedOption}</Badge>
                 )}
-              </Td>
-            </tr>
-          ))}
-        </tbody>
-      </Table>
+              </div>
+
+              <QuestionText
+                text={q.text || "—"}
+                images={q.images.filter((i) => i.target === "STEM")}
+                alt="Part of the question"
+                fallbackWidth={320}
+                fallbackHeight={240}
+                className="block text-sm leading-relaxed"
+              />
+
+              <div className="mt-3 grid gap-1.5 sm:grid-cols-2">
+                {OPTIONS.map((key) => {
+                  const isCorrect = key === q.correctOption;
+                  return (
+                    <div
+                      key={key}
+                      className={cn(
+                        "flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-sm",
+                        isCorrect
+                          ? "border-success bg-success-soft/50"
+                          : "border-border",
+                      )}
+                    >
+                      <span className="font-semibold">{key}.</span>
+                      <QuestionText
+                        text={texts[key]}
+                        images={q.images.filter((i) => i.target === key)}
+                        alt={`Option ${key}`}
+                        fallbackWidth={200}
+                        fallbackHeight={150}
+                        className="flex-1"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-3 rounded-md border border-border bg-surface-muted px-3 py-2.5">
+                <p className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <BookOpenCheck className="size-3.5" /> Solution
+                </p>
+                {q.solution ? (
+                  <Formula
+                    text={q.solution}
+                    className="block text-sm leading-relaxed"
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">Not solved yet</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </CardBody>
     </Card>
   );
 }

@@ -1,4 +1,4 @@
-import { Download, Eye, EyeOff, Trash2 } from "lucide-react";
+import { Download, Eye, Lock, LockOpen, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { ConfirmButton } from "@/components/confirm-button";
 import { Button } from "@/components/ui/button";
@@ -195,7 +195,7 @@ export default async function AdminNotesPage({
                               confirmVariant="danger"
                               action={setNoteActive.bind(null, note.id, false)}
                             >
-                              <EyeOff />
+                              <Lock />
                             </ConfirmButton>
                           ) : (
                             <ConfirmButton
@@ -207,7 +207,7 @@ export default async function AdminNotesPage({
                               confirmVariant="success"
                               action={setNoteActive.bind(null, note.id, true)}
                             >
-                              <Eye />
+                              <LockOpen />
                             </ConfirmButton>
                           )}
 
