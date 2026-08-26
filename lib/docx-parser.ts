@@ -131,14 +131,37 @@ function countLeading(text: string, char: string): number {
   return count;
 }
 
-function cleanText(html: string): string {
+/**
+ * Maps a `<sup>`/`<sub>` to real characters, but never swallows an image.
+ *
+ * Word writes an equation image into a run mammoth reports as a subscript, so
+ * every equation in a maths paper arrives as `<sub><img></sub>`. Feeding that
+ * through the script mapping produced `_([[slot:0]])` — it corrupted the marker,
+ * and it claimed the equation was a subscript of nothing. The image comes out
+ * whole and only the text around it is treated as script.
+ */
+function scriptReplacer(table: Record<string, string>, fallback: string) {
+  return (_match: string, inner: string) => {
+    const tokens: string[] = [];
+    const rest = inner.replace(/\[\[slot:\d+\]\]/g, (token) => {
+      tokens.push(token);
+      return "";
+    });
+    const mapped = mapScript(rest, table, fallback);
+    return tokens.length > 0 ? `${mapped}${tokens.join("")}` : mapped;
+  };
+}
+
+/**
+ * HTML for one line, reduced to text. Exported for its own tests: the sup/sub
+ * handling is where Word documents fight back hardest.
+ *
+ * Runs after image tags have become slot tokens, so it must leave those alone.
+ */
+export function cleanText(html: string): string {
   const converted = html
-    .replace(/<sup[^>]*>([\s\S]*?)<\/sup>/gi, (_m, inner: string) =>
-      mapScript(inner, SUPERSCRIPTS, "^"),
-    )
-    .replace(/<sub[^>]*>([\s\S]*?)<\/sub>/gi, (_m, inner: string) =>
-      mapScript(inner, SUBSCRIPTS, "_"),
-    );
+    .replace(/<sup[^>]*>([\s\S]*?)<\/sup>/gi, scriptReplacer(SUPERSCRIPTS, "^"))
+    .replace(/<sub[^>]*>([\s\S]*?)<\/sub>/gi, scriptReplacer(SUBSCRIPTS, "_"));
   return decodeHtml(stripTags(converted)).replace(/\s+/g, " ").trim();
 }
 
@@ -330,7 +353,38 @@ export async function parseQuestionPaper(
     // --- option
     const optionMatch = text.match(OPTION_RE);
     if (optionMatch && current) {
-      const key = optionMatch[1].toUpperCase() as OptionKey;
+      const labelled = optionMatch[1].toUpperCase() as OptionKey;
+
+      // Papers are typed by hand and mislabel an option often enough to matter:
+      // this one runs "A) B) C) B)", so taking the label at its word overwrote
+      // option B and left D empty — reported as "Option D is empty", which sends
+      // the admin looking at the wrong line. The second B goes to the first free
+      // slot instead, and the mislabelling is said out loud.
+      const taken =
+        Boolean(current.options[labelled]) ||
+        current.images.some((i) => i.target === labelled);
+      const key = taken
+        ? OPTION_KEYS.find(
+            (k) => !current!.options[k] && !current!.images.some((i) => i.target === k),
+          )
+        : labelled;
+
+      if (!key) {
+        warnings.push({
+          line,
+          message: `Question ${current.number} has more than four options — "${labelled})" could not be placed.`,
+        });
+        return;
+      }
+      if (key !== labelled) {
+        warnings.push({
+          line,
+          message:
+            `Question ${current.number} labels two options "${labelled})". ` +
+            `The second has been read as option ${key} — check it is the right way round.`,
+        });
+      }
+
       current.options[key] = attachImages(current, fragment, key, optionMatch[2].trim());
       cursor = key;
       return;
