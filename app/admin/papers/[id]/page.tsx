@@ -39,7 +39,6 @@ import {
 } from "@/lib/solutions";
 import { cn, formatDate, formatTime } from "@/lib/utils";
 import { publishExam } from "@/app/admin/exams/actions";
-import { EditQuestion } from "./edit-question";
 import { ReplacePaper } from "./replace-paper";
 import { ReusePaperDialog } from "./reuse-form";
 import { SettleQuestion } from "./settle-form";
@@ -370,7 +369,7 @@ export default async function PaperPage({
             results that have already been recorded. The paper can still be run
             again for another batch.
           </Alert>
-          <SavedQuestions questions={existing} editable={!locked} />
+          <SavedQuestions questions={existing} />
         </>
       ) : existing.length > 0 ? (
         <>
@@ -385,7 +384,7 @@ export default async function PaperPage({
 
           {/* View and reuse only: this section is not where a paper is changed
               or thrown away. */}
-          <SavedQuestions questions={existing} editable={!locked} />
+          <SavedQuestions questions={existing} />
         </>
       ) : (
         // A paper is attached while its exam is being set up, so an exam still
@@ -422,7 +421,6 @@ export default async function PaperPage({
 function SavedQuestions({
   questions,
   action,
-  editable = false,
 }: {
   questions: {
     id: string;
@@ -446,8 +444,6 @@ function SavedQuestions({
     }[];
   }[];
   action?: React.ReactNode;
-  /** Whether a question may still be corrected — false once anyone has sat it. */
-  editable?: boolean;
 }) {
   const OPTIONS = ["A", "B", "C", "D"] as const;
 
@@ -484,7 +480,6 @@ function SavedQuestions({
                 {disagrees && (
                   <Badge tone="danger">solution says {q.solvedOption}</Badge>
                 )}
-                {editable && <EditQuestion question={q} />}
               </div>
 
               <QuestionText

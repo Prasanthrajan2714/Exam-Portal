@@ -29,8 +29,8 @@ export function ReplacePaper({
 
   if (!open) {
     return (
-      <Button type="button" variant="ghost" onClick={() => setOpen(true)}>
-        <RefreshCw /> Replace paper
+      <Button type="button" variant="secondary" onClick={() => setOpen(true)}>
+        <RefreshCw /> Replace this paper
       </Button>
     );
   }
