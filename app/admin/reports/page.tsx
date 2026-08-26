@@ -1,4 +1,4 @@
-import { Download, FileSpreadsheet, Filter, ListChecks } from "lucide-react";
+import { Download, FileSpreadsheet, ListChecks } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/field";
@@ -135,10 +135,6 @@ export default async function ReportsPage({
         method="get"
         className="mb-4 flex flex-wrap items-end gap-3 rounded-[var(--radius-app)] border border-border bg-surface p-3"
       >
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Filter className="size-4" />
-          Class
-        </div>
         <Select
           name="batch"
           defaultValue={batch}

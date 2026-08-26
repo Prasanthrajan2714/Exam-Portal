@@ -38,6 +38,7 @@ import {
 } from "@/lib/solutions";
 import { formatDate, formatTime } from "@/lib/utils";
 import { publishExam } from "@/app/admin/exams/actions";
+import { ReplacePaper } from "./replace-paper";
 import { ReusePaperDialog } from "./reuse-form";
 import { SettleQuestion } from "./settle-form";
 import { SolvePanel } from "./solve-panel";
@@ -182,6 +183,21 @@ export default async function PaperPage({
           </>
         }
       />
+
+      {/* A draft nobody has sat can still take a different document. It sits
+          here rather than in the header because opening it unfolds the whole
+          uploader, and the ordinary reason to be on this page is to read the
+          paper. */}
+      {existing.length > 0 && exam.status !== "PUBLISHED" && !locked && (
+        <div className="mb-6">
+          <ReplacePaper
+            examId={id}
+            examName={exam.name}
+            medium={exam.medium}
+            questionCount={exam._count.questions}
+          />
+        </div>
+      )}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat

@@ -1,4 +1,4 @@
-import { Pencil, Search } from "lucide-react";
+import { Eye, Search } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/field";
@@ -182,7 +182,6 @@ export default async function PapersPage({
                     <Th>Date</Th>
                     <Th>Medium</Th>
                     <Th>Questions</Th>
-                    <Th>Status</Th>
                     <Th className="text-right">Action</Th>
                   </tr>
                 </thead>
@@ -243,16 +242,11 @@ export default async function PapersPage({
                             </p>
                           )}
                         </Td>
-                        <Td>
-                          <Badge tone={exam.status === "PUBLISHED" ? "success" : "neutral"}>
-                            {exam.status === "PUBLISHED" ? "Published" : "Draft"}
-                          </Badge>
-                        </Td>
                         <Td className="text-right">
                           <Button asChild variant="secondary" size="sm">
                             <Link href={`/admin/papers/${exam.id}`}>
-                              <Pencil />
-                              Edit
+                              <Eye />
+                              Preview
                             </Link>
                           </Button>
                         </Td>

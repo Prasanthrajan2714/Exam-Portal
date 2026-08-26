@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { formatSpan } from "@/lib/utils";
 import {
   canShowResult,
   computeDeadline,
@@ -175,5 +176,28 @@ describe("formatDuration", () => {
 
   it("clamps negatives to zero", () => {
     expect(formatDuration(-5)).toBe("00:00");
+  });
+});
+
+describe("formatSpan", () => {
+  it("says a short window in minutes", () => {
+    expect(formatSpan(45)).toBe("45 min");
+    expect(formatSpan(10)).toBe("10 min");
+  });
+
+  it("says a whole number of hours without a stray zero", () => {
+    expect(formatSpan(120)).toBe("2 h");
+    expect(formatSpan(60)).toBe("1 h");
+  });
+
+  it("says hours and minutes together", () => {
+    expect(formatSpan(150)).toBe("2 h 30 min");
+  });
+
+  it("does not go negative when the times are the wrong way round", () => {
+    // The window is shown live as the admin types, so it passes through
+    // nonsense on the way to something sensible.
+    expect(formatSpan(-30)).toBe("0 min");
+    expect(formatSpan(0)).toBe("0 min");
   });
 });

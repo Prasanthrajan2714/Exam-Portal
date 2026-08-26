@@ -268,12 +268,12 @@ test("the question papers section lists that paper for viewing and reuse", async
   await expect(page).toHaveURL(new RegExp(`/admin/papers/${ctx.examId}$`));
 
   // "Question papers" lists one row per exam — a paper never exists on its own —
-  // and "Edit" opens that paper's own page, where the saved questions live.
+  // and "Preview" opens that paper's own page, where the saved questions live.
   await page.goto("/admin/papers");
   await page
     .locator("tr")
     .filter({ hasText: EXAM })
-    .getByRole("link", { name: "Edit" })
+    .getByRole("link", { name: "Preview" })
     .click();
   await expect(page).toHaveURL(new RegExp(`/admin/papers/${ctx.examId}$`));
   await expect(page.getByRole("heading", { name: EXAM })).toBeVisible();

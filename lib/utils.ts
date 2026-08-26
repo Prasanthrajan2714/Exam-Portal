@@ -54,3 +54,18 @@ export function initials(name: string): string {
     .map((p) => p[0]?.toUpperCase() ?? "")
     .join("");
 }
+
+/**
+ * A span of minutes as a person would say it — "45 min", "2 h", "1 h 30 min".
+ *
+ * Used where a window length is shown back to an admin who typed two clock
+ * times: "150 minutes" is arithmetic they then have to do in their head.
+ */
+export function formatSpan(minutes: number): string {
+  const total = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(total / 60);
+  const mins = total % 60;
+  if (hours === 0) return `${mins} min`;
+  if (mins === 0) return `${hours} h`;
+  return `${hours} h ${mins} min`;
+}

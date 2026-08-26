@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  CalendarDays,
-  CheckCircle2,
-  Clock,
-  Loader2,
-  Sparkles,
-} from "lucide-react";
+import { CalendarDays, CheckCircle2, Loader2, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
@@ -22,7 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/primitives";
 import type { ActionResult } from "@/lib/action-result";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, formatDate, formatSpan } from "@/lib/utils";
 import { PaperUploader } from "../papers/paper-uploader";
 import { createExam, updateExam } from "./actions";
 
@@ -456,18 +450,17 @@ export function ExamForm({
           </p>
         </CardHeader>
         <CardBody className="grid gap-4 sm:grid-cols-3">
+          {/* No decorative icon over these: a native time input draws its own
+              clock button, and an icon inset on the left pushed the value off
+              centre between the two of them. */}
           <Field label="Opens at" htmlFor="startTime" required>
-            <div className="relative">
-              <Clock className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="startTime"
-                type="time"
-                required
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className="pl-9"
-              />
-            </div>
+            <Input
+              id="startTime"
+              type="time"
+              required
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+            />
           </Field>
 
           <Field
@@ -475,18 +468,19 @@ export function ExamForm({
             htmlFor="endTime"
             required
             error={state.fieldErrors?.endsAt}
+            hint={
+              // The window length said back, so nobody has to subtract two clock
+              // times in their head to notice they typed 09:00 – 09:10.
+              windowMinutes > 0 ? `Open for ${formatSpan(windowMinutes)}.` : undefined
+            }
           >
-            <div className="relative">
-              <Clock className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="endTime"
-                type="time"
-                required
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                className="pl-9"
-              />
-            </div>
+            <Input
+              id="endTime"
+              type="time"
+              required
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+            />
           </Field>
 
           <Field
@@ -495,7 +489,11 @@ export function ExamForm({
             required
             error={state.fieldErrors?.durationMinutes}
             hint={
-              windowMinutes > 0 ? `Window is ${windowMinutes} minutes long.` : undefined
+              // Starting late cannot buy extra time, so say so where the number
+              // is typed rather than leaving it to be discovered on exam day.
+              windowMinutes > 0 && Number(duration) > windowMinutes
+                ? `Longer than the window — a student starting at ${startTime} gets ${formatSpan(windowMinutes)}.`
+                : "Each student's own countdown, once they start."
             }
           >
             <Input

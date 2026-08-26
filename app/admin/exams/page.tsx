@@ -1,4 +1,4 @@
-import { BarChart3, FileText, FileUp, Plus } from "lucide-react";
+import { FileText, FileUp, Plus } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -78,9 +78,11 @@ export default async function ExamsPage() {
                   ...exam,
                   questionCount: exam._count.questions,
                 });
-                // A paper can still be uploaded only while the exam is a draft
-                // nobody has sat; after that the paper action is view-only.
-                const canTakePaper = !published && exam._count.attempts === 0;
+                // Only an exam with no paper yet goes to the uploader. Once one
+                // is on file the action opens it, where it can be read and — a
+                // draft nobody has sat — replaced.
+                const hasPaper = exam._count.questions > 0;
+                const canTakePaper = !published && exam._count.attempts === 0 && !hasPaper;
                 return (
                   <tr key={exam.id}>
                     <Td>
@@ -143,13 +145,9 @@ export default async function ExamsPage() {
                             </Link>
                           </Button>
                         )}
-                        {exam._count.attempts > 0 && (
-                          <Button asChild variant="ghost" size="sm">
-                            <Link href={`/admin/exams/${exam.id}/results`}>
-                              <BarChart3 /> Results
-                            </Link>
-                          </Button>
-                        )}
+                        {/* No Results here: the Reports section is the place
+                            results are read, and two doors to the same thing
+                            only makes the row harder to scan. */}
                       </div>
                     </Td>
                   </tr>
