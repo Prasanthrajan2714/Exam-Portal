@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSpan } from "@/lib/utils";
+import { examDateFromInput, formatSpan } from "@/lib/utils";
 import {
   canShowResult,
   computeDeadline,
@@ -199,5 +199,26 @@ describe("formatSpan", () => {
     // nonsense on the way to something sensible.
     expect(formatSpan(-30)).toBe("0 min");
     expect(formatSpan(0)).toBe("0 min");
+  });
+});
+
+describe("examDateFromInput", () => {
+  it("reads a date input as that calendar day at UTC midnight", () => {
+    // Which is how createExam stores examDate, so an equality filter matches.
+    const date = examDateFromInput("2026-08-28");
+    expect(date?.toISOString()).toBe("2026-08-28T00:00:00.000Z");
+  });
+
+  it("returns null for anything that is not a date", () => {
+    // Every caller reads null as "no date filter", so a stray query parameter
+    // must not become a filter that matches nothing.
+    expect(examDateFromInput("")).toBeNull();
+    expect(examDateFromInput("yesterday")).toBeNull();
+    expect(examDateFromInput("28-08-2026")).toBeNull();
+    expect(examDateFromInput("2026-8-28")).toBeNull();
+  });
+
+  it("returns null for a date that does not exist", () => {
+    expect(examDateFromInput("2026-13-45")).toBeNull();
   });
 });

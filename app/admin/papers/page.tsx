@@ -14,23 +14,10 @@ import {
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { examPhase } from "@/lib/exam-window";
-import { formatDate } from "@/lib/utils";
+import { examDateFromInput, formatDate } from "@/lib/utils";
 import { DownloadPaper } from "./download-paper";
 
 export const metadata = { title: "Question papers · Admin" };
-
-/**
- * `examDate` is the exam's local calendar day stored at UTC midnight (see
- * createExam), which is also the date the table shows — so an exact match on it
- * is what the admin means when they pick a day out of the calendar.
- */
-function examDateFromInput(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return null;
-  const [, year, month, day] = match;
-  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
-  return Number.isNaN(date.getTime()) ? null : date;
-}
 
 /**
  * Every question paper the portal holds, for looking one up and reusing it. A

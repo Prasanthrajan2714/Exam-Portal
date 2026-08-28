@@ -255,7 +255,7 @@ export default async function ExamDetailPage({
 
         {exam._count.attempts > 0 && (
           <Button asChild variant="secondary">
-            <Link href={`/admin/exams/${exam.id}/results`}>
+            <Link href={`/admin/reports/${exam.id}`}>
               <BarChart3 /> Results
             </Link>
           </Button>

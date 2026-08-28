@@ -1,7 +1,7 @@
 import { CalendarDays, Download, FileSpreadsheet, ListChecks } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/field";
+import { Input, Select } from "@/components/ui/field";
 import {
   Badge,
   Card,
@@ -19,7 +19,7 @@ import { sweepExamAttempts } from "@/lib/attempts";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { examPhase } from "@/lib/exam-window";
-import { formatDate } from "@/lib/utils";
+import { examDateFromInput, formatDate } from "@/lib/utils";
 
 export const metadata = { title: "Reports · Admin" };
 // "Closed" depends on the current instant, so this page can never be cached.
@@ -28,10 +28,11 @@ export const dynamic = "force-dynamic";
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ batch?: string }>;
+  searchParams: Promise<{ batch?: string; date?: string }>;
 }) {
   await requireAdmin();
-  const { batch = "" } = await searchParams;
+  const { batch = "", date = "" } = await searchParams;
+  const examDate = examDateFromInput(date);
 
   // The dropdown lists every class that has published exams, not just ones with
   // closed exams — picking a class whose paper is still running should say so
@@ -43,7 +44,11 @@ export default async function ReportsPage({
   });
 
   const published = await prisma.exam.findMany({
-    where: { status: "PUBLISHED", ...(batch ? { batchId: batch } : {}) },
+    where: {
+      status: "PUBLISHED",
+      ...(batch ? { batchId: batch } : {}),
+      ...(examDate ? { examDate } : {}),
+    },
     orderBy: [{ examDate: "desc" }, { startsAt: "desc" }],
     include: {
       batch: {
@@ -155,10 +160,17 @@ export default async function ReportsPage({
             </option>
           ))}
         </Select>
+        <Input
+          type="date"
+          name="date"
+          defaultValue={date}
+          className="w-44"
+          aria-label="Filter by exam date"
+        />
         <Button type="submit" variant="secondary">
           Apply
         </Button>
-        {batch && (
+        {(batch || examDate) && (
           <Button asChild variant="ghost">
             <Link href="/admin/reports">Clear</Link>
           </Button>
@@ -279,7 +291,7 @@ export default async function ReportsPage({
                       <Td>
                         <div className="flex justify-end gap-2">
                           <Button asChild variant="ghost" size="sm">
-                            <Link href={`/admin/exams/${exam.id}/results`}>
+                            <Link href={`/admin/reports/${exam.id}`}>
                               <ListChecks /> View results
                             </Link>
                           </Button>

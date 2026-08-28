@@ -69,3 +69,30 @@ export function formatSpan(minutes: number): string {
   if (mins === 0) return `${hours} h`;
   return `${hours} h ${mins} min`;
 }
+
+/**
+ * The Date an `<input type="date">` value means, as an exam's `examDate`.
+ *
+ * `examDate` is the exam's local calendar day stored at UTC midnight (see
+ * createExam), and it is the date every list shows — so an exact match on it is
+ * what an admin means when they pick a day out of a calendar. Anything that is
+ * not a date returns null, which every caller reads as "no date filter".
+ */
+export function examDateFromInput(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const [, year, month, day] = match.map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(date.getTime())) return null;
+
+  // Date.UTC rolls a month of 13 or a day of 45 forward into a real date rather
+  // than refusing it, so "2026-13-45" would quietly become February 2027 and
+  // filter a list against a day nobody asked for. Only a date that survives the
+  // round trip is the date that was typed.
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+    ? date
+    : null;
+}

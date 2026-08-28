@@ -14,22 +14,9 @@ import {
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { adminExamStatus } from "@/lib/exam-window";
-import { formatDate, formatTime } from "@/lib/utils";
+import { examDateFromInput, formatDate, formatTime } from "@/lib/utils";
 
 export const metadata = { title: "Exams · Admin" };
-
-/**
- * `examDate` is the exam's local calendar day stored at UTC midnight (see
- * createExam), which is also the date the table shows — so an exact match on it
- * is what the admin means when they pick a day out of the calendar.
- */
-function examDateFromInput(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return null;
-  const [, year, month, day] = match;
-  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
-  return Number.isNaN(date.getTime()) ? null : date;
-}
 
 export default async function ExamsPage({
   searchParams,

@@ -97,13 +97,16 @@ test("admin adds a student and is shown generated credentials once", async ({ pa
   await openDialog(page, "Add student");
 
   const form = dialog(page);
+  // The batch comes first and the rest of the form stays disabled until it is
+  // chosen, so this is the order the dialog now enforces.
+  await field(form, "Batch or class").selectOption({ label: BATCH });
   await field(form, "Student name").fill(STUDENT);
 
   // The username is generated from the name — wait for it to populate.
   await expect(form.getByLabel("Username")).not.toHaveValue("", { timeout: 15_000 });
 
   await field(form, "Email").fill(`arjun${STAMP}@example.com`);
-  await field(form, "Batch or class").selectOption({ label: BATCH });
+  await field(form, "Phone number").fill("9876543210");
   await form.getByRole("button", { name: "Add student", exact: true }).click();
 
   await expect(page.getByText("is ready to sign in")).toBeVisible();

@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Alert } from "@/components/ui/primitives";
+import { phoneError } from "@/lib/phone";
+import { cn } from "@/lib/utils";
 import type { ActionResult } from "@/lib/action-result";
 import {
   type CreatedCredential,
@@ -38,10 +40,10 @@ type StudentValues = {
   username: string;
 };
 
-function Submit({ label }: { label: string }) {
+function Submit({ label, blocked = false }: { label: string; blocked?: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending}>
+    <Button type="submit" disabled={pending || blocked}>
       {pending && <Loader2 className="animate-spin" />}
       {label}
     </Button>
@@ -98,6 +100,15 @@ function CreateBody({
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [edited, setEdited] = useState(false);
+  // The batch is asked for first and gates the rest: which class a student is in
+  // is the decision that matters, and a form filled in before it is chosen is a
+  // form that has to be checked again afterwards.
+  const [batchId, setBatchId] = useState("");
+  const [phone, setPhone] = useState("");
+
+  // Checked as it is typed, and again on the server — a nine-digit number is a
+  // typo worth catching while the student is still standing there.
+  const phoneProblem = phoneError(phone);
   const [, startTransition] = useTransition();
 
   // Generate the username from the name as it's typed, until the admin edits it
@@ -140,15 +151,41 @@ function CreateBody({
       <form action={formAction} className="space-y-4">
         {!state.ok && state.message && <Alert tone="danger">{state.message}</Alert>}
 
+        <Field
+          label="Batch or class"
+          htmlFor="batchId"
+          required
+          error={state.fieldErrors?.batchId}
+          hint="Chosen first: it decides which exams this student will see."
+        >
+          <Select
+            id="batchId"
+            name="batchId"
+            required
+            value={batchId}
+            onChange={(e) => setBatchId(e.target.value)}
+            autoFocus
+          >
+            <option value="" disabled>
+              Choose a batch…
+            </option>
+            {batches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
         <Field label="Student name" htmlFor="name" required error={state.fieldErrors?.name}>
           <Input
             id="name"
             name="name"
             required
-            autoFocus
+            disabled={!batchId}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Arjun Kumar"
+            placeholder={batchId ? "e.g. Arjun Kumar" : "Choose a batch first"}
           />
         </Field>
 
@@ -166,14 +203,29 @@ function CreateBody({
               setEdited(true);
               setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ""));
             }}
+            disabled={!batchId}
             placeholder="generated automatically"
             className="font-mono"
           />
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Phone number" htmlFor="phone" error={state.fieldErrors?.phone}>
-            <Input id="phone" name="phone" placeholder="9876543210" inputMode="tel" />
+          <Field
+            label="Phone number"
+            htmlFor="phone"
+            error={phoneProblem ?? state.fieldErrors?.phone}
+            hint="Ten digits."
+          >
+            <Input
+              id="phone"
+              name="phone"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              disabled={!batchId}
+              placeholder="9876543210"
+              inputMode="tel"
+              className={cn(phoneProblem && "border-danger")}
+            />
           </Field>
           <Field
             label="Email"
@@ -181,31 +233,23 @@ function CreateBody({
             error={state.fieldErrors?.email}
             hint="Credentials are emailed here."
           >
-            <Input id="email" name="email" type="email" placeholder="student@example.com" />
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              disabled={!batchId}
+              placeholder="student@example.com"
+            />
           </Field>
         </div>
 
         <Field label="School name" htmlFor="schoolName">
-          <Input id="schoolName" name="schoolName" placeholder="e.g. Kendriya Vidyalaya" />
-        </Field>
-
-        <Field
-          label="Batch or class"
-          htmlFor="batchId"
-          required
-          error={state.fieldErrors?.batchId}
-          hint="Decides which exams this student will see."
-        >
-          <Select id="batchId" name="batchId" required defaultValue="">
-            <option value="" disabled>
-              Choose a batch…
-            </option>
-            {batches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </Select>
+          <Input
+            id="schoolName"
+            name="schoolName"
+            disabled={!batchId}
+            placeholder="e.g. Kendriya Vidyalaya"
+          />
         </Field>
 
         <DialogFooter>
@@ -214,7 +258,9 @@ function CreateBody({
               Cancel
             </Button>
           </DialogClose>
-          <Submit label="Add student" />
+          {/* A bad number cannot be saved. The server refuses it too, so this
+              only saves the admin a round trip. */}
+          <Submit label="Add student" blocked={!batchId || Boolean(phoneProblem)} />
         </DialogFooter>
       </form>
     </>
@@ -235,6 +281,10 @@ function EditBody({
   const [state, formAction] = useActionState<ActionResult, FormData>(updateStudent, {
     ok: false,
   });
+  // The same rule as the add form: a number already on file can be corrected
+  // here, and correcting it into a nine-digit one should not be possible.
+  const [phone, setPhone] = useState(student.phone ?? "");
+  const phoneProblem = phoneError(phone);
 
   useEffect(() => {
     if (state.ok && state.message) {
@@ -265,8 +315,20 @@ function EditBody({
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Phone number" htmlFor="e-phone" error={state.fieldErrors?.phone}>
-            <Input id="e-phone" name="phone" defaultValue={student.phone ?? ""} />
+          <Field
+            label="Phone number"
+            htmlFor="e-phone"
+            error={phoneProblem ?? state.fieldErrors?.phone}
+            hint="Ten digits."
+          >
+            <Input
+              id="e-phone"
+              name="phone"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              inputMode="tel"
+              className={cn(phoneProblem && "border-danger")}
+            />
           </Field>
           <Field label="Email" htmlFor="e-email" error={state.fieldErrors?.email}>
             <Input
@@ -298,7 +360,7 @@ function EditBody({
               Cancel
             </Button>
           </DialogClose>
-          <Submit label="Save changes" />
+          <Submit label="Save changes" blocked={Boolean(phoneProblem)} />
         </DialogFooter>
       </form>
     </>

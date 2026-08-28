@@ -12,6 +12,7 @@ import {
 } from "@/lib/action-result";
 import { generatePassword, hashPassword, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { phoneError } from "@/lib/phone";
 import { credentialsEmail, sendMail } from "@/lib/mailer";
 import { generateUsername } from "@/lib/username";
 
@@ -21,7 +22,13 @@ const studentSchema = z.object({
     .string()
     .trim()
     .max(20)
-    .refine((v) => v === "" || /^[0-9+\-\s()]{6,20}$/.test(v), "Enter a valid phone number")
+    // The rule lives in lib/phone.ts so the dialog can apply the same one before
+    // submitting — and so this stays the one that actually decides. The message
+    // says how many digits were given, which is the useful half of it.
+    .superRefine((value, ctx) => {
+      const problem = phoneError(value);
+      if (problem) ctx.addIssue({ code: "custom", message: problem });
+    })
     .optional()
     .or(z.literal("")),
   email: z
