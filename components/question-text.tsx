@@ -1,3 +1,4 @@
+import { MathText } from "@/components/math-text";
 import { QuestionImage, type QuestionImageSource } from "@/components/question-image";
 import { layoutQuestion } from "@/lib/question-layout";
 import { cn } from "@/lib/utils";
@@ -8,6 +9,9 @@ import { cn } from "@/lib/utils";
  * The placement rule lives in `layoutQuestion`; this only draws the result. An
  * equation set mid-sentence is rendered inline with the words around it, because
  * that is what it is — not a figure that deserves a line of its own.
+ *
+ * The text between the images goes through `MathText`, so a fraction written as
+ * `2/(π+5)` is stacked here exactly as it is in a worked solution.
  */
 
 export type PlacedImage = QuestionImageSource & { id: string; order: number };
@@ -37,7 +41,11 @@ export function QuestionText({
   return (
     <span className={cn("whitespace-pre-wrap", className)}>
       {parts.map((part, i) => {
-        if (part.kind === "text") return <span key={`t${i}`}>{part.value}</span>;
+        // The text between the images is where a fraction can be, so it goes
+        // through the same reading the solutions do.
+        if (part.kind === "text") {
+          return <MathText key={`t${i}`} text={part.value} />;
+        }
 
         const image = byOrder.get(part.order);
         if (!image) return null;

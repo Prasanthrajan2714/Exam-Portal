@@ -1,8 +1,13 @@
+import { MathText } from "@/components/math-text";
 import { parseFormula } from "@/lib/formula";
 import { cn } from "@/lib/utils";
 
 /**
- * A worked solution, with its subscripts and superscripts set as such.
+ * A worked solution: fractions stacked, subscripts and superscripts set as such.
+ *
+ * The two passes are ordered. Fractions are found first, because the rule reads
+ * whole operands and `x_1/y_1` has to be seen as two of them; the script markup
+ * is then read within each piece of text that survives.
  *
  * `sub` and `sup` are styled rather than left to the browser: the default
  * `vertical-align` grows the line box, so a paragraph with a few subscripts in
@@ -18,7 +23,15 @@ export function Formula({
 }) {
   return (
     <span className={cn("whitespace-pre-wrap", className)}>
-      {parseFormula(text).map((seg, i) => {
+      <MathText text={text} renderLeaf={scripted} />
+    </span>
+  );
+}
+
+function scripted(value: string, key: string): React.ReactNode {
+  return (
+    <span key={key}>
+      {parseFormula(value).map((seg, i) => {
         if (seg.kind === "text") return <span key={i}>{seg.value}</span>;
         return (
           <span

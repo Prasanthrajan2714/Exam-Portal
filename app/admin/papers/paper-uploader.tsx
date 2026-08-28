@@ -30,6 +30,7 @@ import {
   CardTitle,
   Stat,
 } from "@/components/ui/primitives";
+import { hasFraction } from "@/lib/fraction";
 import { hasFormulaMarkup } from "@/lib/formula";
 import { nothingToTranslate, stillEnglish } from "@/lib/translation-review";
 import { cn } from "@/lib/utils";
@@ -1159,11 +1160,14 @@ function QuestionEditor({
                   className={cn("h-8 text-sm", !value && images.length === 0 && "border-danger")}
                   placeholder={`Option ${key}`}
                 />
-                {images.length > 0 && (
+                {/* An option is a plain input, so without this a stacked
+                    fraction would never be seen here at all — the one screen
+                    where the text is still being corrected. */}
+                {(images.length > 0 || hasFraction(value)) && (
                   <QuestionText
                     text={value}
                     images={images}
-                    alt={'Option ' + key}
+                    alt={`Option ${key}`}
                     fallbackWidth={90}
                     fallbackHeight={90}
                     className="mt-1.5 block text-xs"
