@@ -29,6 +29,8 @@ const noteSchema = z.object({
   description: z.string().trim().max(500, "Keep the description under 500 characters").optional().or(z.literal("")),
   batchId: z.string().min(1, "Choose which batch or class this is for"),
   subjectId: z.string().optional().or(z.literal("")),
+  // A checkbox sends nothing when it is off, so absence means "no".
+  allowDownload: z.preprocess((v) => v === "on" || v === "true" || v === true, z.boolean()),
 });
 
 export async function createNote(
@@ -46,6 +48,7 @@ export async function createNote(
     description: formData.get("description"),
     batchId: formData.get("batchId"),
     subjectId: formData.get("subjectId"),
+    allowDownload: formData.get("allowDownload"),
   });
   if (!parsed.success) {
     return fail("Please fix the highlighted fields.", zodFieldErrors(parsed.error));
@@ -85,6 +88,7 @@ export async function createNote(
         originalName: upload.name,
         fileSize: upload.size,
         mimeType: "application/pdf",
+        allowDownload: parsed.data.allowDownload,
       },
     });
   } catch (error) {
@@ -136,4 +140,34 @@ export async function deleteNote(id: string): Promise<ActionResult> {
   revalidatePath("/admin/notes");
   revalidatePath("/student/notes");
   return ok(`"${note.title}" deleted.`);
+}
+
+/**
+ * Turns downloading on or off for one note.
+ *
+ * Separate from `active`, which is about whether a note is visible at all. This
+ * is about whether a class may keep a copy of one they can see — a past paper
+ * an admin is happy to have read on screen but not passed around.
+ */
+export async function setNoteDownloadable(
+  id: string,
+  allowDownload: boolean,
+): Promise<ActionResult> {
+  try {
+    await requireAdmin();
+  } catch (error) {
+    return fail(authErrorMessage(error) ?? "Not allowed");
+  }
+
+  const note = await prisma.note.findUnique({ where: { id }, select: { title: true } });
+  if (!note) return fail("That material no longer exists.");
+
+  await prisma.note.update({ where: { id }, data: { allowDownload } });
+  revalidatePath("/admin/notes");
+  revalidatePath("/student/notes");
+  return ok(
+    allowDownload
+      ? `Students can now download “${note.title}”.`
+      : `“${note.title}” is now read-only — students can open it but not keep a copy.`,
+  );
 }

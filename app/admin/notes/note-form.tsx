@@ -143,6 +143,24 @@ export function NoteFormDialog({
             />
           </Field>
 
+          {/* Defaults to allowed. Turned off, students can still open the
+              material and read it — they just cannot keep a copy. */}
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-[var(--radius-app)] border border-border bg-surface px-3 py-2">
+            <input
+              type="checkbox"
+              name="allowDownload"
+              defaultChecked
+              className="mt-0.5 size-4 accent-[var(--primary)]"
+            />
+            <span className="text-sm">
+              <span className="block font-medium">Students may download this</span>
+              <span className="text-xs text-muted-foreground">
+                Leave this off for material you are happy to have read on screen
+                but would rather was not passed around.
+              </span>
+            </span>
+          </label>
+
           <Field label="PDF file" required error={fileProblem ?? state.fieldErrors?.file}>
             <label className="flex cursor-pointer flex-col items-center justify-center rounded-[var(--radius-app)] border-2 border-dashed border-border-strong bg-surface-muted/50 px-6 py-6 text-center transition-colors hover:border-primary hover:bg-primary-soft/30">
               <FileText className="mb-2 size-7 text-muted-foreground" />

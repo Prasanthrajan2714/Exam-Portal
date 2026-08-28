@@ -12,8 +12,11 @@ import {
   Td,
   Th,
 } from "@/components/ui/primitives";
+import { Pagination } from "@/components/pagination";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@/lib/generated/prisma/client";
+import { resolvePage } from "@/lib/pagination";
 import { formatDate, formatTime } from "@/lib/utils";
 import { deleteStudent, setStudentStatus } from "./actions";
 import { ResetPasswordButton } from "./reset-password-button";
@@ -24,10 +27,16 @@ export const metadata = { title: "Students · Admin" };
 export default async function StudentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; batch?: string; status?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    batch?: string;
+    status?: string;
+    page?: string;
+    perPage?: string;
+  }>;
 }) {
   await requireAdmin();
-  const { q = "", batch = "", status = "" } = await searchParams;
+  const { q = "", batch = "", status = "", page: askedPage, perPage } = await searchParams;
 
   const batches = await prisma.batch.findMany({
     where: { active: true },
@@ -35,28 +44,41 @@ export default async function StudentsPage({
     select: { id: true, name: true },
   });
 
+  // Narrowed here rather than inside the object: spread into one, the literal
+  // type is lost and Prisma will not take a bare string for an enum column.
+  const statusFilter =
+    status === "ACTIVE" || status === "DISABLED" ? status : null;
+
+  const where: Prisma.StudentWhereInput = {
+    ...(batch ? { batchId: batch } : {}),
+    ...(statusFilter ? { status: statusFilter } : {}),
+    ...(q
+      ? {
+          OR: [
+            { name: { contains: q, mode: "insensitive" as const } },
+            { email: { contains: q, mode: "insensitive" as const } },
+            { phone: { contains: q } },
+            { user: { username: { contains: q.toLowerCase() } } },
+          ],
+        }
+      : {}),
+  };
+
+  // Counted against the same filters, so "of 340" is the number of students the
+  // filters actually match rather than the number in the school.
+  const total = await prisma.student.count({ where });
+  const pageInfo = resolvePage(total, askedPage, perPage);
+
   const students = await prisma.student.findMany({
-    where: {
-      ...(batch ? { batchId: batch } : {}),
-      ...(status === "ACTIVE" || status === "DISABLED" ? { status } : {}),
-      ...(q
-        ? {
-            OR: [
-              { name: { contains: q, mode: "insensitive" as const } },
-              { email: { contains: q, mode: "insensitive" as const } },
-              { phone: { contains: q } },
-              { user: { username: { contains: q.toLowerCase() } } },
-            ],
-          }
-        : {}),
-    },
+    where,
     orderBy: [{ status: "asc" }, { name: "asc" }],
     include: {
       user: { select: { username: true, lastLoginAt: true } },
       batch: { select: { id: true, name: true } },
       _count: { select: { attempts: true } },
     },
-    take: 500,
+    skip: pageInfo.skip,
+    take: pageInfo.take,
   });
 
   const noBatches = batches.length === 0;
@@ -253,6 +275,14 @@ export default async function StudentsPage({
                 </tbody>
               </Table>
             </Card>
+          )}
+
+          {total > 0 && (
+            <Pagination
+              page={pageInfo}
+              params={{ q, batch, status }}
+              label="students"
+            />
           )}
         </>
       )}

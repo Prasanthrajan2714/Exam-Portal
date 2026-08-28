@@ -27,7 +27,7 @@ describe("noteFileError", () => {
 
   it("refuses a file past the cap, saying how big it is", () => {
     const problem = noteFileError(pdf("huge.pdf", NOTE_MAX_BYTES + 1));
-    expect(problem).toContain("20.0 MB");
+    expect(problem).toContain("50.0 MB");
     expect(problem).toContain("split it into parts");
   });
 
@@ -60,5 +60,27 @@ describe("formatFileSize", () => {
     expect(formatFileSize(512)).toBe("512 B");
     expect(formatFileSize(2048)).toBe("2 KB");
     expect(formatFileSize(1024 * 1024 * 3.5)).toBe("3.5 MB");
+  });
+});
+
+describe("the cap and the transports it has to fit through", () => {
+  it("is 50 MB", () => {
+    expect(NOTE_MAX_BYTES).toBe(50 * 1024 * 1024);
+    expect(formatFileSize(NOTE_MAX_BYTES)).toBe("50.0 MB");
+  });
+
+  it("leaves room under the request limits for multipart overhead", async () => {
+    // Both limits in next.config.ts have to sit above this one. Under either,
+    // the body is truncated in transit and the parser fails on half a form —
+    // naming neither the file nor its size, which is exactly what an admin
+    // reported. Read from the file so the two cannot drift apart unnoticed.
+    const config = await import("node:fs/promises").then((fs) =>
+      fs.readFile("next.config.ts", "utf8"),
+    );
+    const limits = [...config.matchAll(/"(\d+)mb"/g)].map((m) => Number(m[1]));
+    expect(limits.length, "both limits should be set").toBe(2);
+    for (const limit of limits) {
+      expect(limit * 1024 * 1024).toBeGreaterThan(NOTE_MAX_BYTES);
+    }
   });
 });

@@ -388,6 +388,11 @@ model Note {
   /// which matters when a handout is withdrawn for a correction rather than
   /// because it was a mistake.
   active     Boolean  @default(true)
+  /// Whether students may keep a copy. Off, the file is still readable in the
+  /// browser but the download route refuses it — which is how a paper that may
+  /// be read but should not circulate is handled. Defaults to allowed, because
+  /// that is what every note uploaded before this column could already do.
+  allowDownload Boolean @default(true)
   uploadedAt DateTime @default(now()) @db.Timestamptz(3)
 
   // Cascade rather than restrict: batch deletion is already refused while any

@@ -1,6 +1,7 @@
-import { FileText, FileUp, Plus } from "lucide-react";
+import { FileText, FileUp, Plus, Search } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Input, Select } from "@/components/ui/field";
 import {
   Badge,
   Card,
@@ -17,17 +18,50 @@ import { formatDate, formatTime } from "@/lib/utils";
 
 export const metadata = { title: "Exams · Admin" };
 
-export default async function ExamsPage() {
+/**
+ * `examDate` is the exam's local calendar day stored at UTC midnight (see
+ * createExam), which is also the date the table shows — so an exact match on it
+ * is what the admin means when they pick a day out of the calendar.
+ */
+function examDateFromInput(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export default async function ExamsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; batch?: string; subject?: string; date?: string }>;
+}) {
   await requireAdmin();
 
-  const exams = await prisma.exam.findMany({
-    orderBy: [{ startsAt: "desc" }],
-    include: {
-      batch: { select: { name: true } },
-      examSubjects: { include: { subject: { select: { name: true } } }, orderBy: { order: "asc" } },
-      _count: { select: { questions: true, attempts: true } },
-    },
-  });
+  const { q = "", batch = "", subject = "", date = "" } = await searchParams;
+  const examDate = examDateFromInput(date);
+  const filtered = Boolean(q || batch || subject || examDate);
+
+  const [batches, subjects, exams, totalExams] = await Promise.all([
+    prisma.batch.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.subject.findMany({ orderBy: { order: "asc" }, select: { id: true, name: true } }),
+    prisma.exam.findMany({
+      where: {
+        ...(batch ? { batchId: batch } : {}),
+        // An exam covers a subject when it was built with it.
+        ...(subject ? { examSubjects: { some: { subjectId: subject } } } : {}),
+        ...(examDate ? { examDate } : {}),
+        ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
+      },
+      orderBy: [{ startsAt: "desc" }],
+      include: {
+        batch: { select: { name: true } },
+        examSubjects: { include: { subject: { select: { name: true } } }, orderBy: { order: "asc" } },
+        _count: { select: { questions: true, attempts: true } },
+      },
+    }),
+    prisma.exam.count(),
+  ]);
 
   return (
     <>
@@ -43,7 +77,7 @@ export default async function ExamsPage() {
         }
       />
 
-      {exams.length === 0 ? (
+      {totalExams === 0 ? (
         <EmptyState
           title="No exams yet"
           description="Create an exam to set its subjects, schedule and marking. You will upload the question paper afterwards."
@@ -54,7 +88,84 @@ export default async function ExamsPage() {
           }
         />
       ) : (
-        <Card>
+        <>
+          {/* Plain GET form, the same as the papers section: the filters live in
+              the URL, so a filtered view survives a refresh and can be shared. */}
+          <form
+            method="get"
+            className="mb-4 flex flex-wrap items-end gap-3 rounded-[var(--radius-app)] border border-border bg-surface p-3"
+          >
+            <div className="relative min-w-56 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                name="q"
+                defaultValue={q}
+                placeholder="Search exam name"
+                className="pl-9"
+                aria-label="Search exams by name"
+              />
+            </div>
+            <Select
+              name="batch"
+              defaultValue={batch}
+              className="w-48"
+              aria-label="Filter by batch or class"
+            >
+              <option value="">All batches</option>
+              {batches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </Select>
+            <Select
+              name="subject"
+              defaultValue={subject}
+              className="w-44"
+              aria-label="Filter by subject"
+            >
+              <option value="">All subjects</option>
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+            <Input
+              type="date"
+              name="date"
+              defaultValue={date}
+              className="w-44"
+              aria-label="Filter by exam date"
+            />
+            <Button type="submit" variant="secondary">
+              Apply
+            </Button>
+            {filtered && (
+              <Button asChild variant="ghost">
+                <Link href="/admin/exams">Clear</Link>
+              </Button>
+            )}
+          </form>
+
+          {filtered && (
+            <p className="mb-3 text-sm text-muted-foreground">
+              {exams.length} of {totalExams} exam(s) match.
+            </p>
+          )}
+
+          {exams.length === 0 ? (
+            <EmptyState
+              title="No exams match those filters"
+              description="Nothing here is for that batch, subject or date. Widen the filters or clear them to see every exam again."
+              action={
+                <Button asChild variant="secondary">
+                  <Link href="/admin/exams">Clear filters</Link>
+                </Button>
+              }
+            />
+          ) : (
+            <Card>
           <Table>
             <thead>
               <tr>
@@ -161,6 +272,8 @@ export default async function ExamsPage() {
             </tbody>
           </Table>
         </Card>
+          )}
+        </>
       )}
     </>
   );

@@ -4,11 +4,11 @@ const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
       // Uploads come in through server actions: question papers (.docx with
-      // embedded diagrams) and study notes (PDFs, capped at 20 MB in
-      // lib/uploads.ts). The default 1 MB body limit would reject those long
+      // embedded diagrams) and study notes (PDFs, capped at 50 MB in
+      // lib/note-file.ts). The default 1 MB body limit would reject those long
       // before our own validation ran, so this sits just above the file cap to
       // leave room for multipart overhead.
-      bodySizeLimit: "25mb",
+      bodySizeLimit: "55mb",
     },
 
     // A second, separate limit — and the one that actually bit. Because this app
@@ -19,7 +19,7 @@ const nextConfig: NextConfig = {
     // naming neither the file nor the size. Kept level with bodySizeLimit above,
     // because a body allowed through one gate and truncated by the other is the
     // worst of both.
-    proxyClientMaxBodySize: "25mb",
+    proxyClientMaxBodySize: "55mb",
   },
 };
 

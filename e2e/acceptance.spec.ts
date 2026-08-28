@@ -116,6 +116,10 @@ test("admin adds a student and is shown generated credentials once", async ({ pa
   expect(ctx.password.length).toBeGreaterThanOrEqual(8);
 
   await page.getByRole("button", { name: "Done" }).click();
+
+  // The list is paginated and sorted by name, so a student just added is rarely
+  // on the first page — which is what the search box is for.
+  await page.goto(`/admin/students?q=${encodeURIComponent(STUDENT)}`);
   await expect(page.getByRole("cell", { name: STUDENT, exact: true })).toBeVisible();
 });
 
@@ -139,7 +143,15 @@ test("bulk upload imports valid rows and rejects a malformed one", async ({ page
   await importButton.click();
 
   await expect(page.getByText("Import complete")).toBeVisible();
-  await expect(page.getByRole("cell", { name: "Ravi Verma", exact: true })).toBeVisible();
+  // Same as above: found by searching rather than by being on the first page.
+  await page.goto(`/admin/students?q=${encodeURIComponent("Ravi Verma")}`);
+  // Not an exact name: the cell also carries the school from the spreadsheet,
+  // so its accessible name is "Ravi Verma St Josephs". And .first(), because
+  // re-runs leave earlier Ravi Vermas behind — this asks that one is there
+  // rather than that exactly one is.
+  await expect(
+    page.getByRole("cell", { name: /Ravi Verma/ }).first(),
+  ).toBeVisible();
 });
 
 test("admin creates an exam and uploads its paper without leaving Create Exam", async ({
@@ -445,7 +457,8 @@ test("admin sees the result, rank and question analysis", async ({ page }) => {
 
 test("a disabled student cannot sign in", async ({ page }) => {
   await loginAsAdmin(page);
-  await page.goto("/admin/students");
+  // Filtered rather than page one: the list is paginated and sorted by name.
+  await page.goto(`/admin/students?q=${encodeURIComponent(STUDENT)}`);
 
   await page.getByRole("button", { name: `Disable ${STUDENT}` }).click();
   await dialog(page).getByRole("button", { name: "Disable", exact: true }).click();

@@ -59,7 +59,11 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const download = new URL(request.url).searchParams.get("download") === "1";
+  const asked = new URL(request.url).searchParams.get("download") === "1";
+  // A note may be readable without being keepable. Enforced here rather than by
+  // hiding the button: the same URL with ?download=1 is a guess away, and a
+  // permission only a link respects is not one.
+  const download = asked && (session.role === "ADMIN" || note.allowDownload);
   // Streamed, not read into memory: study material runs to tens of megabytes and
   // several students open the same file at once.
   const body = Readable.toWeb(

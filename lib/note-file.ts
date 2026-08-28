@@ -11,7 +11,7 @@
  */
 
 /** Matches the transport limits in next.config.ts, which sit just above it. */
-export const NOTE_MAX_BYTES = 20 * 1024 * 1024;
+export const NOTE_MAX_BYTES = 50 * 1024 * 1024;
 
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

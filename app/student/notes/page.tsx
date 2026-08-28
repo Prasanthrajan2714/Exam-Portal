@@ -101,11 +101,16 @@ export default async function StudentNotesPage() {
                           <Eye /> View
                         </a>
                       </Button>
-                      <Button asChild size="sm">
-                        <a href={`/api/notes/${note.id}?download=1`}>
-                          <Download /> Download
-                        </a>
-                      </Button>
+                      {/* Absent when the admin has made this read-only. The
+                          route refuses it either way, so the button is not the
+                          rule — but offering one that fails is no kindness. */}
+                      {note.allowDownload && (
+                        <Button asChild size="sm">
+                          <a href={`/api/notes/${note.id}?download=1`}>
+                            <Download /> Download
+                          </a>
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}

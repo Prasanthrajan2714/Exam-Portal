@@ -1,4 +1,4 @@
-import { Download, FileSpreadsheet, ListChecks } from "lucide-react";
+import { CalendarDays, Download, FileSpreadsheet, ListChecks } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/field";
@@ -103,21 +103,28 @@ export default async function ReportsPage({
     );
   }
 
-  // Group class-wise. `closed` is already newest-first, so each group's exams
-  // inherit that order.
-  type Group = {
-    batch: (typeof closed)[number]["batch"];
+  // Grouped by the day the exams were sat, newest first, with the class named
+  // on each row. An exam is an event on a date; a school looking for last
+  // Tuesday's results should find them together rather than scattered through
+  // one card per class.
+  type DayGroup = {
+    /** The exam date itself, for the heading. */
+    date: Date;
+    /** Its ISO day, which is what groups them. */
+    key: string;
     exams: typeof closed;
   };
-  const groups = new Map<string, Group>();
+  const days = new Map<string, DayGroup>();
   for (const exam of closed) {
-    const group = groups.get(exam.batch.id) ?? { batch: exam.batch, exams: [] };
-    group.exams.push(exam);
-    groups.set(exam.batch.id, group);
+    // examDate is stored at UTC midnight for the exam's own calendar day, so
+    // the ISO date is the day without any timezone arithmetic.
+    const key = exam.examDate.toISOString().slice(0, 10);
+    const day = days.get(key) ?? { date: exam.examDate, key, exams: [] };
+    day.exams.push(exam);
+    days.set(key, day);
   }
-  const classGroups = [...groups.values()].sort((a, b) =>
-    a.batch.name.localeCompare(b.batch.name),
-  );
+  // `closed` is already newest-first, so the days come out in that order too.
+  const dayGroups = [...days.values()];
 
   const totalAttempts = attemptStats.reduce((sum, s) => sum + s._count._all, 0);
   const selectedBatch = batches.find((b) => b.id === batch);
@@ -126,7 +133,7 @@ export default async function ReportsPage({
     <>
       <PageHeader
         title="Reports"
-        description="Marks for every exam whose window has closed, grouped class-wise. Download one exam, or a whole class in a single workbook."
+        description="Marks for every exam whose window has closed, by the date it was sat. Download one exam, or a whole class in a single workbook."
       />
 
       {/* Plain GET form so the page stays a server component and a filtered
@@ -156,14 +163,24 @@ export default async function ReportsPage({
             <Link href="/admin/reports">Clear</Link>
           </Button>
         )}
+        {/* One class in one workbook. It used to sit on that class's own card;
+            with the report read by date, the filter is where a class is chosen
+            and so is where its workbook belongs. */}
+        {selectedBatch && (
+          <Button asChild variant="secondary">
+            <a href={`/api/admin/reports/${selectedBatch.id}`}>
+              <FileSpreadsheet /> Download {selectedBatch.name} marks
+            </a>
+          </Button>
+        )}
       </form>
 
       {closed.length > 0 && (
         <div className="mb-6 grid gap-4 sm:grid-cols-3">
           <Stat label="Closed exams" value={closed.length} />
           <Stat
-            label="Classes reporting"
-            value={classGroups.length}
+            label="Exam days"
+            value={dayGroups.length}
             hint={selectedBatch ? selectedBatch.name : "all classes"}
           />
           <Stat label="Papers written" value={totalAttempts} hint="attempts recorded" />
@@ -193,32 +210,25 @@ export default async function ReportsPage({
           />
         )
       ) : (
-        classGroups.map((group) => (
-          <Card key={group.batch.id} className="mb-6">
-            <CardHeader className="flex flex-wrap items-start justify-between gap-3">
+        dayGroups.map((day) => (
+          <Card key={day.key} className="mb-6">
+            <CardHeader>
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  {group.batch.name}
-                  <Badge tone="primary">Class</Badge>
+                  <CalendarDays className="size-4 text-muted-foreground" />
+                  {formatDate(day.date)}
                 </CardTitle>
                 <CardDescription>
-                  {group.exams.length} closed{" "}
-                  {group.exams.length === 1 ? "exam" : "exams"} ·{" "}
-                  {group.batch._count.students}{" "}
-                  {group.batch._count.students === 1 ? "student" : "students"}
+                  {day.exams.length} closed{" "}
+                  {day.exams.length === 1 ? "exam" : "exams"} on this date
                 </CardDescription>
               </div>
-              <Button asChild variant="secondary" size="sm">
-                <a href={`/api/admin/reports/${group.batch.id}`}>
-                  <FileSpreadsheet /> Download class marks
-                </a>
-              </Button>
             </CardHeader>
             <Table>
               <thead>
                 <tr>
                   <Th>Exam</Th>
-                  <Th>Exam date</Th>
+                  <Th>Class</Th>
                   <Th>Appeared</Th>
                   <Th>Average</Th>
                   <Th>Highest</Th>
@@ -226,7 +236,7 @@ export default async function ReportsPage({
                 </tr>
               </thead>
               <tbody>
-                {group.exams.map((exam) => {
+                {day.exams.map((exam) => {
                   const stats = statsByExam.get(exam.id);
                   const maxScore = maxScoreByExam.get(exam.id) ?? 0;
                   const appeared = stats?._count._all ?? 0;
@@ -242,11 +252,18 @@ export default async function ReportsPage({
                           Closed {formatDate(exam.endsAt)}
                         </p>
                       </Td>
-                      <Td className="text-muted-foreground">
-                        {formatDate(exam.examDate)}
+                      {/* The class names itself on the row now that the card no
+                          longer does, and links to that class's own workbook. */}
+                      <Td>
+                        <Link
+                          href={`/admin/reports?batch=${exam.batch.id}`}
+                          className="text-primary hover:underline"
+                        >
+                          {exam.batch.name}
+                        </Link>
                       </Td>
                       <Td className="tabular-nums">
-                        {appeared} / {group.batch._count.students}
+                        {appeared} / {exam.batch._count.students}
                         {appeared === 0 && (
                           <Badge tone="warning" className="ml-2">
                             nobody sat

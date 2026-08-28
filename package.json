@@ -20,7 +20,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset",
-    "setup": "prisma migrate deploy && prisma generate && tsx prisma/seed.ts"
+    "setup": "prisma migrate deploy && prisma generate && tsx prisma/seed.ts",
+    "e2e:clean": "tsx scripts/clean-e2e.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",

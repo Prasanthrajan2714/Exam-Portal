@@ -1,4 +1,4 @@
-import { Download, Eye, Lock, LockOpen, Trash2 } from "lucide-react";
+import { Download, DownloadCloud, Eye, Lock, LockOpen, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { ConfirmButton } from "@/components/confirm-button";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { formatFileSize } from "@/lib/uploads";
 import { formatDate } from "@/lib/utils";
-import { deleteNote, setNoteActive } from "./actions";
+import { deleteNote, setNoteActive, setNoteDownloadable } from "./actions";
 import { NoteFormDialog } from "./note-form";
 
 export const metadata = { title: "Study Notes · Admin" };
@@ -167,6 +167,13 @@ export default async function AdminNotesPage({
                         <Badge tone={note.active ? "success" : "neutral"}>
                           {note.active ? "Visible" : "Hidden"}
                         </Badge>
+                        {/* Separate from visibility: this one is about whether a
+                            class may keep a copy of what they can already read. */}
+                        {!note.allowDownload && (
+                          <Badge tone="warning" className="ml-1">
+                            Read-only
+                          </Badge>
+                        )}
                       </Td>
                       <Td>
                         <div className="flex items-center justify-end gap-1">
@@ -210,6 +217,35 @@ export default async function AdminNotesPage({
                               <LockOpen />
                             </ConfirmButton>
                           )}
+
+                          {/* Readable but not keepable, or both. The download
+                              route enforces it; this only sets it. */}
+                          <ConfirmButton
+                            variant="ghost"
+                            size="sm"
+                            aria-label={
+                              note.allowDownload
+                                ? `Stop students downloading ${note.title}`
+                                : `Let students download ${note.title}`
+                            }
+                            title={
+                              note.allowDownload
+                                ? `Stop students downloading “${note.title}”?`
+                                : `Let students download “${note.title}”?`
+                            }
+                            description={
+                              note.allowDownload
+                                ? "They can still open it and read it on screen — they just cannot keep a copy."
+                                : "They will be able to save their own copy of this material."
+                            }
+                            confirmLabel={note.allowDownload ? "Make read-only" : "Allow"}
+                            confirmVariant={note.allowDownload ? "danger" : "success"}
+                            action={setNoteDownloadable.bind(null, note.id, !note.allowDownload)}
+                          >
+                            <DownloadCloud
+                              className={note.allowDownload ? "" : "opacity-40"}
+                            />
+                          </ConfirmButton>
 
                           <ConfirmButton
                             variant="ghost"
