@@ -373,12 +373,26 @@ test("student sits the exam, is locked out on re-entry, and resumes after approv
   await loginAsAdmin(adminPage);
   await adminPage.goto("/admin/reopen-requests");
   await expect(adminPage.getByText(STUDENT)).toBeVisible();
-  await expect(adminPage.getByText(/power went out/)).toBeVisible();
 
-  await adminPage.getByRole("button", { name: "Approve", exact: true }).first().click();
+  // Everything here is scoped to this run's own request, found by a student
+  // name carrying this run's timestamp. A portal in use has other people
+  // waiting, and "the first Approve button on the page" would reopen a
+  // stranger's exam and hand them five extra minutes.
+  const request = adminPage
+    .locator("div")
+    .filter({ has: adminPage.getByText(STUDENT) })
+    .filter({ has: adminPage.getByRole("button", { name: "Approve", exact: true }) })
+    .last();
+  await expect(request.getByText(/power went out/)).toBeVisible();
+
+  await request.getByRole("button", { name: "Approve", exact: true }).click();
   await dialog(adminPage).getByLabel("Extra time to grant (minutes)").fill("5");
   await dialog(adminPage).getByRole("button", { name: "Approve and reopen" }).click();
-  await expect(adminPage.getByText("Nothing waiting")).toBeVisible();
+  // This request specifically is no longer waiting. Not "the page is empty" —
+  // whether anyone else is still waiting is none of this test's business — and
+  // not "the name is gone" either, since an approved request moves down into
+  // the resolved list and keeps its name.
+  await expect(request).toHaveCount(0);
   await adminPage.close();
 
   // ---------------------------------------------------------------- resume

@@ -40,6 +40,7 @@ import {
 import { cn, formatDate, formatTime } from "@/lib/utils";
 import { publishExam } from "@/app/admin/exams/actions";
 import { ReplacePaper } from "./replace-paper";
+import { ResolveQuestion } from "./resolve-question";
 import { ReusePaperDialog } from "./reuse-form";
 import { SettleQuestion } from "./settle-form";
 import { SolvePanel } from "./solve-panel";
@@ -369,7 +370,7 @@ export default async function PaperPage({
             results that have already been recorded. The paper can still be run
             again for another batch.
           </Alert>
-          <SavedQuestions questions={existing} />
+          <SavedQuestions questions={existing} examId={id} resolvable={!locked} />
         </>
       ) : existing.length > 0 ? (
         <>
@@ -384,7 +385,7 @@ export default async function PaperPage({
 
           {/* View and reuse only: this section is not where a paper is changed
               or thrown away. */}
-          <SavedQuestions questions={existing} />
+          <SavedQuestions questions={existing} examId={id} resolvable={!locked} />
         </>
       ) : (
         // A paper is attached while its exam is being set up, so an exam still
@@ -421,6 +422,8 @@ export default async function PaperPage({
 function SavedQuestions({
   questions,
   action,
+  examId,
+  resolvable = false,
 }: {
   questions: {
     id: string;
@@ -444,6 +447,9 @@ function SavedQuestions({
     }[];
   }[];
   action?: React.ReactNode;
+  examId: string;
+  /** Whether a solution may still be worked out again — a draft nobody has sat. */
+  resolvable?: boolean;
 }) {
   const OPTIONS = ["A", "B", "C", "D"] as const;
 
@@ -479,6 +485,11 @@ function SavedQuestions({
                     clash here is how an admin finds the question to fix. */}
                 {disagrees && (
                   <Badge tone="danger">solution says {q.solvedOption}</Badge>
+                )}
+                {/* An option corrected after the working was written leaves the
+                    working arguing about wording that has changed. */}
+                {resolvable && (
+                  <ResolveQuestion examId={examId} questionId={q.id} number={q.number} />
                 )}
               </div>
 

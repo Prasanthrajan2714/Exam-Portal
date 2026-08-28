@@ -107,6 +107,17 @@ export function PaperUploader({
     { done: number; total: number } | null
   >(null);
 
+  /**
+   * The wording each solution was written about.
+   *
+   * A solution argues about the options in front of it — 'none of the four
+   * matches this' — so the moment one of them is corrected the working is about
+   * a question that no longer exists. Keeping what it was written for is how
+   * that is noticed; without it a stale explanation is published to students
+   * beside the answer it contradicts.
+   */
+  const [solvedFor, setSolvedFor] = useState<Record<number, string>>({});
+
   const blocking = useMemo(
     () =>
       questions.filter(
@@ -127,10 +138,33 @@ export function PaperUploader({
     [isTamil, questions, translations],
   );
 
-  /** Never solved — this is what a run, or a retry, works through. */
+  /**
+   * Solutions written about wording that has since been corrected.
+   *
+   * The one that prompted this argued "none of the four given equations matches
+   * this" and named option C as a misprint. The admin then fixed option C —
+   * making the working wrong about a paper it had been right about, while its
+   * answer still agreed with the key, so nothing downstream would have caught
+   * it.
+   */
+  const stale = useMemo(
+    () =>
+      questions.filter(
+        (q) =>
+          solutions[q.index] &&
+          solvedFor[q.index] !== undefined &&
+          solvedFor[q.index] !== wordingOf(q),
+      ),
+    [questions, solutions, solvedFor],
+  );
+
+  /**
+   * Never solved, or solved for wording that has since changed — either way
+   * this is what a run, or a retry, works through.
+   */
   const notSolved = useMemo(
-    () => questions.filter((q) => !solutions[q.index]),
-    [questions, solutions],
+    () => questions.filter((q) => !solutions[q.index] || stale.includes(q)),
+    [questions, solutions, stale],
   );
 
   /** No solution, or a solution the admin emptied. Blocks publishing either way. */
@@ -178,6 +212,7 @@ export function PaperUploader({
       setTranslateError(null);
       setBatches(null);
       setSolutions({});
+      setSolvedFor({});
       setSolveError(null);
       setSolveBatches(null);
       toast.success(result.message ?? "Document read");
@@ -301,6 +336,14 @@ export function PaperUploader({
             for (const s of done) next[s.index] = s;
             return next;
           });
+          setSolvedFor((prev) => {
+            const next = { ...prev };
+            for (const s of done) {
+              const question = run.find((q) => q.index === s.index);
+              if (question) next[s.index] = wordingOf(question);
+            }
+            return next;
+          });
           setSolveBatches({ done: i + 1, total: runs.length });
         }
         toast.success(
@@ -330,6 +373,13 @@ export function PaperUploader({
     if (publish && unsolved.length > 0) {
       toast.error(
         `${unsolved.length} question(s) have no worked solution yet. Work the solutions out before publishing.`,
+      );
+      return;
+    }
+    if (publish && stale.length > 0) {
+      toast.error(
+        `${stale.length} question(s) changed after their solution was worked out, ` +
+          `so the working describes the old wording. Work those out again.`,
       );
       return;
     }
@@ -415,6 +465,12 @@ export function PaperUploader({
       };
       return { ...prev, [index]: { ...base, ...patch } };
     });
+    // Touching the working is the admin taking it on against the question as it
+    // now reads, so it stops counting as stale.
+    const question = questions.find((q) => q.index === index);
+    if (question) {
+      setSolvedFor((prev) => ({ ...prev, [index]: wordingOf(question) }));
+    }
   }
 
   // ------------------------------------------------------------- upload step
@@ -643,6 +699,7 @@ export function PaperUploader({
             showTamil={isTamil}
             translation={translations[q.index]}
             solution={solutions[q.index]}
+            solutionStale={stale.includes(q)}
             onChange={(patch) => update(q.index, patch)}
             onTranslationChange={(patch) => updateTranslation(q.index, patch)}
             onSolutionChange={(patch) => updateSolution(q.index, patch)}
@@ -653,7 +710,10 @@ export function PaperUploader({
       {/* ------------------------------------------------------- publish bar */}
       <Card className="sticky bottom-4 mt-6 shadow-lg">
         <CardBody className="flex flex-wrap items-center justify-between gap-4">
-          {untranslated.length > 0 || unsolved.length > 0 || disagreeing.length > 0 ? (
+          {untranslated.length > 0 ||
+          unsolved.length > 0 ||
+          disagreeing.length > 0 ||
+          stale.length > 0 ? (
             <div className="space-y-1 text-sm text-danger">
               {untranslated.length > 0 && (
                 <p>
@@ -678,6 +738,14 @@ export function PaperUploader({
                   {disagreeing.map((q) => q.number).join(", ")}. Fix the key or the
                   solution — a wrong key marks correct answers wrong. Saving as a
                   draft is still fine.
+                </p>
+              )}
+              {stale.length > 0 && (
+                <p>
+                  Publishing is held back: question(s){" "}
+                  {stale.map((q) => q.number).join(", ")} changed after their
+                  solution was worked out, so the working argues about the old
+                  wording. Work those out again, or rewrite the working yourself.
                 </p>
               )}
             </div>
@@ -1019,6 +1087,21 @@ function SolutionPanel({
   );
 }
 
+/**
+ * Everything a solution could have been written about.
+ *
+ * Compared against what it was written about, this is how an edit to the
+ * question is noticed by the working that argues over it. The marks and the
+ * answer key are deliberately not in here: correcting the key is how a
+ * disagreement gets settled, and that must not invalidate the very working the
+ * admin settled it against.
+ */
+function wordingOf(q: DraftQuestion): string {
+  // A separator no question contains, so a word moved from the end of one
+  // option to the start of the next reads as a change rather than a coincidence.
+  return [q.text, q.optionA, q.optionB, q.optionC, q.optionD].join("");
+}
+
 function optionValue(q: DraftQuestion, key: OptionKey): string {
   return key === "A" ? q.optionA : key === "B" ? q.optionB : key === "C" ? q.optionC : q.optionD;
 }
@@ -1032,6 +1115,7 @@ function QuestionEditor({
   showTamil,
   translation,
   solution,
+  solutionStale,
   onChange,
   onTranslationChange,
   onSolutionChange,
@@ -1040,6 +1124,8 @@ function QuestionEditor({
   showTamil: boolean;
   translation?: TranslatedQuestion;
   solution?: SolvedQuestion;
+  /** The working was written about wording that has since been corrected. */
+  solutionStale: boolean;
   onChange: (patch: Partial<DraftQuestion>) => void;
   onTranslationChange: (patch: Partial<TranslatedQuestion>) => void;
   onSolutionChange: (patch: Partial<SolvedQuestion>) => void;
@@ -1191,6 +1277,7 @@ function QuestionEditor({
           index={question.index}
           keyAnswer={question.correctOption}
           solution={solution}
+          stale={solutionStale}
           onChange={onSolutionChange}
         />
 
@@ -1349,11 +1436,14 @@ function SolutionReview({
   index,
   keyAnswer,
   solution,
+  stale,
   onChange,
 }: {
   index: number;
   keyAnswer: OptionKey | null;
   solution?: SolvedQuestion;
+  /** The working was written about wording that has since been corrected. */
+  stale: boolean;
   onChange: (patch: Partial<SolvedQuestion>) => void;
 }) {
   if (!solution) {
@@ -1385,7 +1475,7 @@ function SolutionReview({
     <div
       className={cn(
         "space-y-3 rounded-[var(--radius-app)] border p-3",
-        disagrees
+        disagrees || stale
           ? "border-danger bg-danger-soft/20"
           : "border-border-strong bg-surface-muted/40",
       )}
@@ -1402,6 +1492,18 @@ function SolutionReview({
           </span>
         )}
       </div>
+
+      {stale && (
+        <p className="flex items-start gap-1.5 text-sm font-semibold text-danger">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span>
+            This question changed after the working was written, so the working
+            argues about the old wording — it may name an option that no longer
+            says what it did. Work it out again, or rewrite it here. Publishing
+            is blocked until then.
+          </span>
+        </p>
+      )}
 
       {disagrees && (
         <p className="flex items-start gap-1.5 text-sm font-semibold text-danger">
