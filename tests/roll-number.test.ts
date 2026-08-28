@@ -19,12 +19,36 @@ import {
 
 describe("rollPrefix", () => {
   it("joins the batch and the year", () => {
-    expect(rollPrefix("IIT MAINS", "2026-27")).toBe("iitm2627");
+    expect(rollPrefix("Foundation 6th", "2026-27")).toBe("f62627");
+    expect(rollPrefix("NEET", "2026-27")).toBe("neet2627");
   });
 
-  it("drops punctuation and spacing from the batch name", () => {
-    expect(batchCode("Class 6-B")).toBe("clas");
-    expect(batchCode("NEET — Repeaters")).toBe("neet");
+  it("keeps the number that tells one class from the next", () => {
+    // The whole point: F6 and F7 are different batches and must not both
+    // shorten to F, or their students would share a numbering sequence.
+    expect(batchCode("Foundation 6th")).toBe("f6");
+    expect(batchCode("Foundation 7th")).toBe("f7");
+    expect(batchCode("Class 6")).toBe("c6");
+  });
+
+  it("keeps an acronym whole, because NEET means something and N does not", () => {
+    expect(batchCode("NEET")).toBe("neet");
+    expect(batchCode("NEET - Repeaters")).toBe("neetr");
+  });
+
+  it("drops a long acronym to its initial rather than slicing it", () => {
+    // "IITMAI" is not a word anybody would read out.
+    expect(batchCode("IIT MAINS")).toBe("iitm");
+  });
+
+  it("takes initials from ordinary words", () => {
+    expect(batchCode("Tech Team")).toBe("tt");
+    expect(batchCode("Test Batch 1")).toBe("tb1");
+  });
+
+  it("ignores punctuation and spacing", () => {
+    expect(batchCode("Class 6-B")).toBe("c6b");
+    expect(batchCode("NEET — Repeaters")).toBe("neetr");
   });
 
   it("falls back when a batch name has nothing usable in it", () => {

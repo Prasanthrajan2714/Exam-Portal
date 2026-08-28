@@ -3,6 +3,7 @@
 import { CheckCircle2, Mail, MailX } from "lucide-react";
 import { CopyButton } from "@/components/copy-button";
 import { Alert } from "@/components/ui/primitives";
+import { formatRollNumber } from "@/lib/roll-number";
 import type { CreatedCredential } from "./actions";
 
 /**
@@ -13,7 +14,7 @@ import type { CreatedCredential } from "./actions";
  * assume they can look it up again later.
  */
 export function CredentialsPanel({ credential }: { credential: CreatedCredential }) {
-  const both = `Roll number: ${credential.username}\nPassword: ${credential.password}`;
+  const both = `Roll number: ${formatRollNumber(credential.username)}\nPassword: ${credential.password}`;
 
   return (
     <div className="rounded-[var(--radius-app)] border border-success bg-success-soft/40 p-4">
@@ -23,7 +24,11 @@ export function CredentialsPanel({ credential }: { credential: CreatedCredential
       </div>
 
       <dl className="space-y-2">
-        <Row label="Roll number" value={credential.username} testId="credential-username" />
+        <Row
+          label="Roll number"
+          value={formatRollNumber(credential.username)}
+          testId="credential-username"
+        />
         <Row label="Password" value={credential.password} mono testId="credential-password" />
       </dl>
 

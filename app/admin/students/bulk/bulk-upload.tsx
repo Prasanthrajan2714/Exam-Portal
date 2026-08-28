@@ -26,6 +26,7 @@ import {
   Td,
   Th,
 } from "@/components/ui/primitives";
+import { formatRollNumber } from "@/lib/roll-number";
 import {
   type ImportSummary,
   type ParsedStudentRow,
@@ -138,7 +139,7 @@ export function BulkUpload() {
               {summary.credentials.map((c) => (
                 <tr key={c.username}>
                   <Td>{c.name}</Td>
-                  <Td className="font-mono text-xs">{c.username}</Td>
+                  <Td className="font-mono text-xs">{formatRollNumber(c.username)}</Td>
                   <Td className="font-mono text-xs font-semibold">{c.password}</Td>
                   <Td className="text-muted-foreground">{c.batchName}</Td>
                 </tr>
@@ -195,7 +196,9 @@ export function BulkUpload() {
                       {row.rowNumber}
                     </Td>
                     <Td className="font-medium">{row.name || "—"}</Td>
-                    <Td className="font-mono text-xs">{row.username || "—"}</Td>
+                    <Td className="font-mono text-xs">
+                      {row.username ? formatRollNumber(row.username) : "—"}
+                    </Td>
                     <Td className="text-muted-foreground">{row.batchName || "—"}</Td>
                     <Td className="text-xs text-muted-foreground">
                       {row.email || row.phone || "—"}
@@ -323,7 +326,9 @@ export function BulkUpload() {
                 <code className="rounded bg-surface-muted px-1.5 py-0.5 text-xs">
                   Batch
                 </code>{" "}
-                — required, must match an existing batch name exactly
+                — required, must match an existing batch name exactly. The
+                academic year comes from the batch itself, so there is no column
+                for it here.
               </li>
             </ul>
           </div>

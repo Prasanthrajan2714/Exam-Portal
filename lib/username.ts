@@ -65,10 +65,28 @@ export async function generateRollNumber(
   if (!batch) return generateUsername("student", taken);
 
   const prefix = rollPrefix(batch.name, batch.academicYear);
-  const existing = await prisma.user.findMany({
-    where: { username: { startsWith: prefix } },
-    select: { username: true },
+
+  // Counted from this batch's own students, not from every roll number that
+  // starts with the same letters. Two batches can produce codes where one is a
+  // prefix of the other — "Test Batch" is tb and "Test Batch 1" is tb1 — and
+  // TB1001 then reads as either. Asking the batch who belongs to it is the only
+  // reading that is not ambiguous, and it is what "starts again at 001" means.
+  const students = await prisma.student.findMany({
+    where: { batchId },
+    select: { user: { select: { username: true } } },
   });
 
-  return nextRollNumber(prefix, [...existing.map((u) => u.username), ...taken]);
+  const mine = [...students.map((s) => s.user.username), ...taken];
+  let candidate = nextRollNumber(prefix, mine);
+
+  // Belt and braces for that same prefix overlap: a batch would need a thousand
+  // students to reach its neighbour's numbering, but the login has to be unique
+  // and a clash here would surface as a failed insert rather than a message.
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const clash = await prisma.user.findUnique({ where: { username: candidate } });
+    if (!clash) return candidate;
+    mine.push(candidate);
+    candidate = nextRollNumber(prefix, mine);
+  }
+  return candidate;
 }

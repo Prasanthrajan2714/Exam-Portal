@@ -17,6 +17,7 @@ import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { resolvePage } from "@/lib/pagination";
+import { formatRollNumber } from "@/lib/roll-number";
 import { formatDate, formatTime } from "@/lib/utils";
 import { deleteStudent, setStudentStatus } from "./actions";
 import { ResetPasswordButton } from "./reset-password-button";
@@ -185,7 +186,7 @@ export default async function StudentsPage({
                           <p className="text-xs text-muted-foreground">{s.schoolName}</p>
                         )}
                       </Td>
-                      <Td className="font-mono text-xs">{s.user.username}</Td>
+                      <Td className="font-mono text-xs">{formatRollNumber(s.user.username)}</Td>
                       <Td className="text-muted-foreground">{s.batch.name}</Td>
                       <Td className="text-muted-foreground">
                         {s.email && <p className="text-xs">{s.email}</p>}

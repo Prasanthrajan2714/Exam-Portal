@@ -13,14 +13,43 @@
  * for them to have two identifiers.
  */
 
-/** The letters and digits of a batch name, capped so the result stays sayable. */
+/** Longest a batch code may be, so a roll number stays short enough to say. */
+const MAX_BATCH_CODE = 6;
+
+/**
+ * The short code for a batch: "Foundation 6th" is F6, "NEET" is NEET.
+ *
+ * Word by word. A number in the name is the part that distinguishes one class
+ * from the next, so its digits are kept — F6 and F7 are different batches and
+ * must not both shorten to F. An acronym is kept whole while it fits, because
+ * NEET means something to a school and N does not. Anything else contributes
+ * its initial.
+ */
 export function batchCode(name: string): string {
-  const cleaned = name
+  const tokens = name
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-  return cleaned.slice(0, 4) || "batch";
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean);
+
+  let code = "";
+  for (const token of tokens) {
+    // "6th" is the number six, not a word beginning with a six.
+    const digits = token.replace(/\D/g, "");
+    if (digits) {
+      code += digits;
+      continue;
+    }
+    // An acronym stays whole while there is room; past that it drops to its
+    // initial rather than being sliced into something unpronounceable.
+    const whole = token === token.toUpperCase();
+    code +=
+      whole && code.length + token.length <= MAX_BATCH_CODE ? token : token[0];
+  }
+
+  // Lowercase because that is what a username is; every screen shows it back in
+  // capitals, and signing in is case-insensitive either way.
+  return code.slice(0, MAX_BATCH_CODE).toLowerCase() || "batch";
 }
 
 /**
@@ -109,4 +138,15 @@ export function normaliseAcademicYear(value: string): string | null {
 
   const match = /^(\d{4})\s*[-/–]\s*(\d{2}|\d{4})$/.exec(trimmed)!;
   return `${match[1]}-${match[2].slice(-2)}`;
+}
+
+/**
+ * A roll number as it is written down: `f62627001` shows as `F62627001`.
+ *
+ * Stored lowercase because that is what a username is here, and signing in
+ * lowercases whatever is typed — so a student reading the capitals off a slip
+ * and typing them in gets in either way.
+ */
+export function formatRollNumber(username: string): string {
+  return username.toUpperCase();
 }
