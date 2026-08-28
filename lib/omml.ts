@@ -1,5 +1,7 @@
 import "server-only";
 import JSZip from "jszip";
+import { mtefToText } from "./mtef";
+import { readOleStream } from "./ole";
 import { mapScript, SUBSCRIPTS, SUPERSCRIPTS } from "./text-scripts";
 
 /**
@@ -23,6 +25,11 @@ export type MathRewrite = {
   converted: number;
   /** Equations that held no readable text at all (hand-drawn ink, images). */
   empty: number;
+  /**
+   * MathType objects that could not be read with certainty and were left as
+   * the pictures Word embedded alongside them.
+   */
+  pictures: number;
 };
 
 const DOCUMENT_PART = "word/document.xml";
@@ -33,17 +40,24 @@ export async function inlineEquations(buffer: Buffer): Promise<MathRewrite> {
     zip = await JSZip.loadAsync(buffer);
   } catch {
     // Not a readable zip — let mammoth produce the real error message.
-    return { buffer, converted: 0, empty: 0 };
+    return { buffer, converted: 0, empty: 0, pictures: 0 };
   }
 
   const part = zip.file(DOCUMENT_PART);
-  if (!part) return { buffer, converted: 0, empty: 0 };
+  if (!part) return { buffer, converted: 0, empty: 0, pictures: 0 };
 
   const xml = await part.async("string");
-  if (!xml.includes("<m:oMath")) return { buffer, converted: 0, empty: 0 };
+  const hasOmml = xml.includes("<m:oMath");
+  const hasObjects = xml.includes("<o:OLEObject");
+  if (!hasOmml && !hasObjects) return { buffer, converted: 0, empty: 0, pictures: 0 };
 
   let converted = 0;
   let empty = 0;
+  let pictures = 0;
+
+  // Reading the embedded objects is async and the rewrite below is not, so the
+  // equations are decoded up front and the rewrite only consults the result.
+  const decoded = hasObjects ? await decodeEmbeddedEquations(zip, xml) : new Map();
 
   // Display equations sit in their own <m:oMathPara>; replacing only the inner
   // <m:oMath> would leave the text inside an element mammoth skips wholesale,
@@ -68,9 +82,101 @@ export async function inlineEquations(buffer: Buffer): Promise<MathRewrite> {
     return `<w:r><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`;
   });
 
-  zip.file(DOCUMENT_PART, rewritten);
+  // MathType formulae are OLE objects, not OMML. The whole enclosing run is
+  // replaced rather than just the <w:object>: Word writes an inline equation
+  // into a run carrying <w:vertAlign w:val="subscript"/>, mammoth reports that
+  // faithfully, and cleanText would then set the entire formula as a subscript
+  // of the words in front of it. Nothing on that run describes the text going in
+  // its place, so its <w:rPr> goes with the object.
+  const withObjects = replaceElements(rewritten, "w:r", (inner, attrs) => {
+    const id = oleRelationshipId(inner);
+    if (!id) return `<w:r${attrs}>${inner}</w:r>`;
+
+    const text = decoded.get(id);
+    if (!text) {
+      // Left byte-for-byte, so mammoth still extracts the picture and nothing
+      // is lost.
+      pictures += 1;
+      return `<w:r${attrs}>${inner}</w:r>`;
+    }
+
+    converted += 1;
+    // Padded either side: Word lays an equation out as an object of its own, so
+    // the text around it frequently has no space of its own and "the circles
+    // [x²+y²=4] also passes" would come out as "…=4also passes". cleanText
+    // collapses runs of whitespace, so a spare space costs nothing.
+    return `<w:r><w:t xml:space="preserve"> ${escapeXml(text)} </w:t></w:r>`;
+  });
+
+  zip.file(DOCUMENT_PART, withObjects);
   const out = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
-  return { buffer: out, converted, empty };
+  return { buffer: out, converted, empty, pictures };
+}
+
+// ------------------------------------------------------- embedded (MathType)
+
+/** The relationship id of an `Equation.*` OLE object inside a run, if any. */
+function oleRelationshipId(runXml: string): string | null {
+  const object = /<o:OLEObject\b([^>]*)>/i.exec(runXml);
+  if (!object) return null;
+
+  const progId = /ProgID="([^"]*)"/i.exec(object[1])?.[1] ?? "";
+  // "Equation.DSMT4" is MathType; "Equation.3" is the older editor, whose
+  // streams this cannot read. Both are declined here only by their contents.
+  if (!/^Equation\./i.test(progId)) return null;
+
+  return /r:id="([^"]*)"/i.exec(object[1])?.[1] ?? null;
+}
+
+/**
+ * Reads every MathType object the document references and decodes it.
+ *
+ * Returns a map from relationship id to text, with null for the ones that could
+ * not be read — those keep their picture.
+ */
+async function decodeEmbeddedEquations(
+  zip: JSZip,
+  xml: string,
+): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+
+  const rels = zip.file("word/_rels/document.xml.rels");
+  if (!rels) return out;
+  const relsXml = await rels.async("string");
+
+  const targets = new Map<string, string>();
+  for (const match of relsXml.matchAll(/<Relationship\b([^>]*)>/gi)) {
+    const id = /Id="([^"]*)"/i.exec(match[1])?.[1];
+    const target = /Target="([^"]*)"/i.exec(match[1])?.[1];
+    // Targets are relative to word/, which is where document.xml lives.
+    if (id && target) targets.set(id, `word/${decodeXml(target).replace(/^\/+/, "")}`);
+  }
+
+  // The same object can be referenced more than once; read each part only once.
+  const wanted = new Set<string>();
+  for (const run of xml.matchAll(/<o:OLEObject\b([^>]*)>/gi)) {
+    const progId = /ProgID="([^"]*)"/i.exec(run[1])?.[1] ?? "";
+    if (!/^Equation\./i.test(progId)) continue;
+    const id = /r:id="([^"]*)"/i.exec(run[1])?.[1];
+    if (id) wanted.add(id);
+  }
+
+  for (const id of wanted) {
+    const path = targets.get(id);
+    const file = path ? zip.file(path) : null;
+    if (!file) {
+      out.set(id, null);
+      continue;
+    }
+    try {
+      const stream = readOleStream(await file.async("nodebuffer"), "Equation Native");
+      out.set(id, stream ? mtefToText(stream) : null);
+    } catch {
+      out.set(id, null);
+    }
+  }
+
+  return out;
 }
 
 // ---------------------------------------------------------------- xml walking
@@ -83,7 +189,7 @@ export async function inlineEquations(buffer: Buffer): Promise<MathRewrite> {
 function replaceElements(
   xml: string,
   tag: string,
-  render: (inner: string) => string,
+  render: (inner: string, attrs: string) => string,
 ): string {
   const open = new RegExp(`<${tag}(\\s[^>]*)?>`, "g");
   let out = "";
@@ -95,7 +201,7 @@ function replaceElements(
     const end = findClosing(xml, tag, contentStart);
     if (end === -1) break;
 
-    out += xml.slice(cursor, match.index) + render(xml.slice(contentStart, end.inner));
+    out += xml.slice(cursor, match.index) + render(xml.slice(contentStart, end.inner), match[1] ?? "");
     cursor = end.after;
     open.lastIndex = cursor;
   }

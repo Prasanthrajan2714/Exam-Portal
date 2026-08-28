@@ -260,8 +260,12 @@ export async function parseQuestionPaper(
   const original = Buffer.from(await file.arrayBuffer());
   // Word equations are markup mammoth drops, so they are turned into text
   // before it ever sees the document.
-  const { buffer, converted: equationsConverted, empty: equationsEmpty } =
-    await inlineEquations(original);
+  const {
+    buffer,
+    converted: equationsConverted,
+    empty: equationsEmpty,
+    pictures: equationsAsPictures,
+  } = await inlineEquations(original);
 
   // Images are written to disk during conversion and referenced by a token that
   // survives the HTML-to-text pass below.
@@ -491,6 +495,17 @@ export async function parseQuestionPaper(
         `${equationsEmpty} equation${equationsEmpty === 1 ? "" : "s"} held no readable text ` +
         "and could not be converted. Retype those in the preview, or paste them into the " +
         "document as pictures instead.",
+    });
+  }
+
+  if (equationsAsPictures > 0) {
+    warnings.push({
+      line: 0,
+      message:
+        `${equationsAsPictures} MathType equation${equationsAsPictures === 1 ? " was" : "s were"} ` +
+        "left as pictures because they could not be read with certainty. They still " +
+        "display, but they cannot be corrected here, searched or translated — retype " +
+        "those in the preview below if they matter.",
     });
   }
 

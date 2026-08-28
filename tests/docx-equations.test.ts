@@ -7,8 +7,13 @@ import { clearExamUploads, resolveUploadPath } from "@/lib/uploads";
 /**
  * The admin's chemistry paper came through with every option showing a broken
  * image: Word had written the formulae as Equation Editor metafiles, which no
- * browser renders. This runs their actual document through the real parser and
- * checks that what lands on disk is displayable.
+ * browser renders.
+ *
+ * It is a MathType paper, so those formulae are now decoded out of their
+ * embedded objects and arrive as text — which is why this asks for no images at
+ * all rather than for displayable ones. Anything that does survive as a picture
+ * is a real diagram, and still has to be a PNG laid out at the size the document
+ * gives it; those checks stay, and apply to whatever is left.
  */
 
 const EXAM_ID = "eqtest001";
@@ -51,7 +56,17 @@ describe("a paper whose equations are Word metafiles", () => {
 
         const images = parsed.questions.flatMap((q) => q.images);
         console.log(`questions: ${parsed.questions.length}, images: ${images.length}`);
-        expect(images.length, "this paper is full of equation images").toBeGreaterThan(0);
+        // The formulae were the images. Decoded, they are text an admin can
+        // correct and a student can have translated, and nothing is left on
+        // disk for them.
+        expect(parsed.questions.length, "the paper should still parse").toBeGreaterThan(0);
+        expect(images.length, "every formula should now be text").toBe(0);
+
+        const text = parsed.questions
+          .flatMap((q) => [q.text, q.options.A, q.options.B, q.options.C, q.options.D])
+          .join(" ");
+        // Subscripts are what a chemistry paper is made of.
+        expect(text, "the formulae should have arrived as text").toMatch(/[₀-₉]/);
 
         const byExtension = new Map<string, number>();
         for (const img of images) {
