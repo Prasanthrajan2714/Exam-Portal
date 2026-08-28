@@ -56,9 +56,10 @@ export function AppShell({
   // The shell owns the viewport and nothing outside it scrolls, so the menu —
   // and the Sign out beneath it — stays put however long the page gets.
   return (
-    <div className="flex h-dvh overflow-hidden">
+    <div data-shell="root" className="flex h-dvh overflow-hidden">
       {/* Sidebar */}
       <aside
+        data-shell="sidebar"
         className={cn(
           "fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-surface transition-transform lg:static lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
@@ -108,7 +109,7 @@ export function AppShell({
       )}
 
       {/* Content */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div data-shell="content" className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex h-14 items-center gap-3 border-b border-border bg-surface px-4 lg:hidden">
           <button onClick={() => setOpen(true)} aria-label="Open menu">
             <Menu className="size-5" />
@@ -117,7 +118,7 @@ export function AppShell({
         </header>
         {/* The one scrolling region: a long table moves under a fixed menu
             rather than taking the menu with it. */}
-        <main className="flex-1 overflow-y-auto px-4 py-6 lg:px-8 lg:py-8">
+        <main data-shell="main" className="flex-1 overflow-y-auto px-4 py-6 lg:px-8 lg:py-8">
           <div className="mx-auto w-full max-w-6xl">{children}</div>
         </main>
       </div>

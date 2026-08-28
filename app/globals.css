@@ -178,4 +178,45 @@ body {
     border: 1px solid #ccc !important;
     box-shadow: none !important;
   }
+
+  /*
+    On screen the shell is one viewport tall and the content pane is the only
+    thing that scrolls, so the menu stays put while a long table moves under it.
+    A printer has no viewport to scroll: the clipped box prints as far as its
+    first page and every page after that comes out blank.
+
+    So for print the layout is released — the shell grows to whatever it holds
+    and the page flows normally. This is what makes a twelve-page result sheet
+    come out as twelve pages instead of one.
+  */
+  html,
+  body,
+  [data-shell="root"],
+  [data-shell="content"] {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  [data-shell="main"] {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  /* Navigation is no use on paper, and it would take the first page with it. */
+  [data-shell="sidebar"] {
+    display: none !important;
+  }
+
+  /* Keep a question and its answer together rather than split across a fold. */
+  .print-plain,
+  table {
+    break-inside: auto;
+  }
+  tr {
+    break-inside: avoid;
+  }
 }
