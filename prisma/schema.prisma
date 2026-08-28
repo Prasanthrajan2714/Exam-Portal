@@ -93,11 +93,15 @@ model User {
 }
 
 model Batch {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  description String?
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  id   String @id @default(cuid())
+  name String @unique
+  /// The session this batch belongs to, as "2026-27". Optional because every
+  /// batch created before the column has none, and a class that has been
+  /// running since before anyone recorded a year is still a class.
+  academicYear String?
+  description  String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
 
   students Student[]
   exams    Exam[]

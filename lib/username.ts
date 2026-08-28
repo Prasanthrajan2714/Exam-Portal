@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { nextRollNumber, rollPrefix } from "./roll-number";
 
 /**
  * Base username from a student's name: lowercase, letters and digits only.
@@ -40,4 +41,34 @@ export async function generateUsername(
   }
   // Effectively unreachable; keeps the function total rather than looping forever.
   return `${base}${Date.now().toString(36)}`;
+}
+
+/**
+ * The roll number a new student in this batch would get.
+ *
+ * Replaces the name-derived username for new students: it says which class and
+ * which session, which is what a school already writes on a mark sheet. Existing
+ * students keep whatever they signed up with — a login that has been handed out
+ * is not ours to change.
+ *
+ * `taken` reserves the numbers a bulk import has already issued in this run,
+ * which the database cannot know about yet.
+ */
+export async function generateRollNumber(
+  batchId: string,
+  taken: Set<string> = new Set(),
+): Promise<string> {
+  const batch = await prisma.batch.findUnique({
+    where: { id: batchId },
+    select: { name: true, academicYear: true },
+  });
+  if (!batch) return generateUsername("student", taken);
+
+  const prefix = rollPrefix(batch.name, batch.academicYear);
+  const existing = await prisma.user.findMany({
+    where: { username: { startsWith: prefix } },
+    select: { username: true },
+  });
+
+  return nextRollNumber(prefix, [...existing.map((u) => u.username), ...taken]);
 }

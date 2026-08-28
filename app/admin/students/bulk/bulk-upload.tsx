@@ -129,7 +129,7 @@ export function BulkUpload() {
             <thead>
               <tr>
                 <Th>Name</Th>
-                <Th>Username</Th>
+                <Th>Roll number</Th>
                 <Th>Password</Th>
                 <Th>Batch</Th>
               </tr>
@@ -180,7 +180,7 @@ export function BulkUpload() {
               <tr>
                 <Th>Row</Th>
                 <Th>Name</Th>
-                <Th>Username</Th>
+                <Th>Roll number</Th>
                 <Th>Batch</Th>
                 <Th>Contact</Th>
                 <Th>Status</Th>
@@ -329,7 +329,7 @@ export function BulkUpload() {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Usernames and passwords are generated for you — do not include them.
+            Roll numbers and passwords are generated for you — do not include them.
             Column order does not matter, and headers are matched loosely, so
             “Phone Number” and “Mobile” both work.
           </p>

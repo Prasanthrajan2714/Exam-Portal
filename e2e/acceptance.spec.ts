@@ -103,7 +103,8 @@ test("admin adds a student and is shown generated credentials once", async ({ pa
   await field(form, "Student name").fill(STUDENT);
 
   // The username is generated from the name — wait for it to populate.
-  await expect(form.getByLabel("Username")).not.toHaveValue("", { timeout: 15_000 });
+  // The roll number is generated from the batch chosen above, not from the name.
+  await expect(form.getByLabel("Roll number")).not.toHaveValue("", { timeout: 15_000 });
 
   await field(form, "Email").fill(`arjun${STAMP}@example.com`);
   await field(form, "Phone number").fill("9876543210");

@@ -14,7 +14,7 @@ import { generatePassword, hashPassword, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { phoneError } from "@/lib/phone";
 import { credentialsEmail, sendMail } from "@/lib/mailer";
-import { generateUsername } from "@/lib/username";
+import { generateRollNumber } from "@/lib/username";
 
 const studentSchema = z.object({
   name: z.string().trim().min(2, "Enter the student's full name").max(80),
@@ -98,7 +98,10 @@ export async function createStudent(
     }
     username = requested;
   } else {
-    username = await generateUsername(input.name);
+    // The roll number, from the batch and its academic year. Generated again
+    // here rather than trusting the one the dialog previewed: between the
+    // preview and the save, somebody else may have taken it.
+    username = await generateRollNumber(input.batchId);
   }
 
   const password = generatePassword();
@@ -307,12 +310,19 @@ export async function resetStudentPassword(
 }
 
 /** Live username preview for the add-student form. */
-export async function previewUsername(name: string): Promise<string> {
+/**
+ * The roll number a student joining this batch would be given.
+ *
+ * Keyed on the batch rather than the name, which is why the dialog asks for the
+ * batch first: the number says which class and which session a student belongs
+ * to, and neither is knowable from what they are called.
+ */
+export async function previewUsername(batchId: string): Promise<string> {
   try {
     await requireAdmin();
   } catch {
     return "";
   }
-  if (name.trim().length < 2) return "";
-  return generateUsername(name);
+  if (!batchId) return "";
+  return generateRollNumber(batchId);
 }

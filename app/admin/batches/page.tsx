@@ -46,8 +46,8 @@ export default async function BatchesPage() {
             <thead>
               <tr>
                 <Th>Name</Th>
+                <Th>Academic year</Th>
                 <Th>Students</Th>
-                <Th>Exams</Th>
                 <Th>Created</Th>
                 <Th>Status</Th>
                 <Th className="text-right">Actions</Th>
@@ -56,13 +56,11 @@ export default async function BatchesPage() {
             <tbody>
               {batches.map((batch) => (
                 <tr key={batch.id} className={batch.active ? "" : "opacity-60"}>
-                  <Td>
-                    <p className="font-medium">{batch.name}</p>
-                    {batch.description && (
-                      <p className="text-xs text-muted-foreground">
-                        {batch.description}
-                      </p>
-                    )}
+                  <Td className="font-medium">{batch.name}</Td>
+                  {/* Part of every roll number issued in this batch, which is
+                      why it sits beside the name rather than in a detail view. */}
+                  <Td className="tabular-nums text-muted-foreground">
+                    {batch.academicYear ?? "—"}
                   </Td>
                   <Td className="tabular-nums">
                     {batch._count.students > 0 ? (
@@ -75,9 +73,6 @@ export default async function BatchesPage() {
                     ) : (
                       <span className="text-muted-foreground">0</span>
                     )}
-                  </Td>
-                  <Td className="tabular-nums text-muted-foreground">
-                    {batch._count.exams}
                   </Td>
                   <Td className="text-muted-foreground">
                     {formatDate(batch.createdAt)}

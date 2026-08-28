@@ -15,15 +15,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Field, Input, Textarea } from "@/components/ui/field";
+import { Field, Input } from "@/components/ui/field";
 import { Alert } from "@/components/ui/primitives";
 import type { ActionResult } from "@/lib/action-result";
+import { academicYearError } from "@/lib/roll-number";
+import { cn } from "@/lib/utils";
 import { createBatch, updateBatch } from "./actions";
 
-function Submit({ label }: { label: string }) {
+function Submit({ label, blocked = false }: { label: string; blocked?: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending}>
+    <Button type="submit" disabled={pending || blocked}>
       {pending && <Loader2 className="animate-spin" />}
       {label}
     </Button>
@@ -33,10 +35,14 @@ function Submit({ label }: { label: string }) {
 export function BatchFormDialog({
   batch,
 }: {
-  batch?: { id: string; name: string; description: string | null };
+  batch?: { id: string; name: string; academicYear: string | null };
 }) {
   const editing = Boolean(batch);
   const [open, setOpen] = useState(false);
+  const [academicYear, setAcademicYear] = useState(batch?.academicYear ?? "");
+  // Checked as it is typed. A session that does not span two consecutive years
+  // would otherwise be found much later, in a roll number.
+  const yearProblem = academicYearError(academicYear);
 
   // Success handling lives inside the action rather than in an effect watching
   // its result — an effect would fire a cascading render on every state change.
@@ -98,12 +104,19 @@ export function BatchFormDialog({
             />
           </Field>
 
-          <Field label="Description" htmlFor="description" hint="Optional.">
-            <Textarea
-              id="description"
-              name="description"
-              defaultValue={batch?.description ?? ""}
-              placeholder="Anything that helps you recognise this batch later."
+          <Field
+            label="Academic year"
+            htmlFor="academicYear"
+            hint="Optional. Used with the batch name to build each student's roll number."
+            error={yearProblem ?? state.fieldErrors?.academicYear}
+          >
+            <Input
+              id="academicYear"
+              name="academicYear"
+              value={academicYear}
+              onChange={(e) => setAcademicYear(e.target.value)}
+              placeholder="e.g. 2026-27"
+              className={cn(yearProblem && "border-danger")}
             />
           </Field>
 
@@ -113,7 +126,10 @@ export function BatchFormDialog({
                 Cancel
               </Button>
             </DialogClose>
-            <Submit label={editing ? "Save changes" : "Create batch"} />
+            <Submit
+              label={editing ? "Save changes" : "Create batch"}
+              blocked={Boolean(yearProblem)}
+            />
           </DialogFooter>
         </form>
       </DialogContent>

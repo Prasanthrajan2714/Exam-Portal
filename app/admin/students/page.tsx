@@ -167,7 +167,7 @@ export default async function StudentsPage({
                 <thead>
                   <tr>
                     <Th>Student</Th>
-                    <Th>Username</Th>
+                    <Th>Roll number</Th>
                     <Th>Batch</Th>
                     <Th>Contact</Th>
                     <Th>Exams</Th>

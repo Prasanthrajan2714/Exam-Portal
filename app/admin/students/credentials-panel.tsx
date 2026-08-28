@@ -13,7 +13,7 @@ import type { CreatedCredential } from "./actions";
  * assume they can look it up again later.
  */
 export function CredentialsPanel({ credential }: { credential: CreatedCredential }) {
-  const both = `Username: ${credential.username}\nPassword: ${credential.password}`;
+  const both = `Roll number: ${credential.username}\nPassword: ${credential.password}`;
 
   return (
     <div className="rounded-[var(--radius-app)] border border-success bg-success-soft/40 p-4">
@@ -23,7 +23,7 @@ export function CredentialsPanel({ credential }: { credential: CreatedCredential
       </div>
 
       <dl className="space-y-2">
-        <Row label="Username" value={credential.username} testId="credential-username" />
+        <Row label="Roll number" value={credential.username} testId="credential-username" />
         <Row label="Password" value={credential.password} mono testId="credential-password" />
       </dl>
 

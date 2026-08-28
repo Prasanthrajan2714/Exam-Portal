@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { academicYearError, normaliseAcademicYear } from "@/lib/roll-number";
 import {
   type ActionResult,
   authErrorMessage,
@@ -20,6 +21,18 @@ const batchSchema = z.object({
     .trim()
     .min(2, "Give the batch a name of at least 2 characters")
     .max(60, "Keep the name under 60 characters"),
+  // Optional, and normalised so "2026-2027" and "2026-27" do not become two
+  // different prefixes for the same session's roll numbers.
+  academicYear: z
+    .string()
+    .trim()
+    .max(20)
+    .superRefine((value, ctx) => {
+      const problem = academicYearError(value);
+      if (problem) ctx.addIssue({ code: "custom", message: problem });
+    })
+    .optional()
+    .or(z.literal("")),
 });
 
 export async function createBatch(
@@ -32,7 +45,10 @@ export async function createBatch(
     return fail(authErrorMessage(error) ?? "Not allowed");
   }
 
-  const parsed = batchSchema.safeParse({ name: formData.get("name") });
+  const parsed = batchSchema.safeParse({
+    name: formData.get("name"),
+    academicYear: formData.get("academicYear"),
+  });
   if (!parsed.success) {
     return fail("Please fix the highlighted fields.", zodFieldErrors(parsed.error));
   }
@@ -46,7 +62,12 @@ export async function createBatch(
     });
   }
 
-  await prisma.batch.create({ data: { name: parsed.data.name } });
+  await prisma.batch.create({
+    data: {
+      name: parsed.data.name,
+      academicYear: normaliseAcademicYear(parsed.data.academicYear ?? ""),
+    },
+  });
 
   revalidatePath("/admin/batches");
   return ok(`Batch "${parsed.data.name}" created.`);
@@ -63,7 +84,10 @@ export async function updateBatch(
   }
 
   const id = String(formData.get("id") ?? "");
-  const parsed = batchSchema.safeParse({ name: formData.get("name") });
+  const parsed = batchSchema.safeParse({
+    name: formData.get("name"),
+    academicYear: formData.get("academicYear"),
+  });
   if (!id) return fail("Missing batch.");
   if (!parsed.success) {
     return fail("Please fix the highlighted fields.", zodFieldErrors(parsed.error));
@@ -81,7 +105,13 @@ export async function updateBatch(
     });
   }
 
-  await prisma.batch.update({ where: { id }, data: { name: parsed.data.name } });
+  await prisma.batch.update({
+    where: { id },
+    data: {
+      name: parsed.data.name,
+      academicYear: normaliseAcademicYear(parsed.data.academicYear ?? ""),
+    },
+  });
 
   revalidatePath("/admin/batches");
   return ok("Batch updated.");

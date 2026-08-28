@@ -7,7 +7,7 @@ import { type ActionResult, authErrorMessage, fail, ok } from "@/lib/action-resu
 import { generatePassword, hashPassword, requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { credentialsEmail, sendMail } from "@/lib/mailer";
-import { generateUsername } from "@/lib/username";
+import { generateRollNumber } from "@/lib/username";
 import { readFirstSheet } from "@/lib/xlsx";
 
 /**
@@ -118,9 +118,12 @@ export async function parseStudentSheet(
       else seenEmails.add(key);
     }
 
+    // The same roll number scheme the Add student dialog uses. Two students in
+    // one class must not end up with different kinds of identifier depending on
+    // how they were added.
     let username = "";
-    if (name.length >= 2) {
-      username = await generateUsername(name, reservedUsernames);
+    if (name.length >= 2 && batch) {
+      username = await generateRollNumber(batch.id, reservedUsernames);
       reservedUsernames.add(username);
     }
 
@@ -186,10 +189,10 @@ export async function importStudents(
     const password = generatePassword();
     const passwordHash = await hashPassword(password);
 
-    // Re-resolve the username at write time: another import may have taken it
-    // between validation and confirmation.
-    const username = await generateUsername(
-      row.name,
+    // Re-resolved at write time: another import may have taken it between
+    // validation and confirmation.
+    const username = await generateRollNumber(
+      row.batchId!,
       new Set(credentials.map((c) => c.username)),
     );
 

@@ -111,18 +111,16 @@ function CreateBody({
   const phoneProblem = phoneError(phone);
   const [, startTransition] = useTransition();
 
-  // Generate the username from the name as it's typed, until the admin edits it
-  // by hand — after that their choice wins.
+  // The roll number follows the batch, not the name: it says which class and
+  // which session, and neither is knowable from what a student is called. The
+  // admin can still type their own, and after that their choice wins.
   useEffect(() => {
-    if (edited) return;
-    const handle = setTimeout(() => {
-      startTransition(async () => {
-        const suggestion = await previewUsername(name);
-        if (suggestion) setUsername(suggestion);
-      });
-    }, 350);
-    return () => clearTimeout(handle);
-  }, [name, edited, startTransition]);
+    if (edited || !batchId) return;
+    startTransition(async () => {
+      const suggestion = await previewUsername(batchId);
+      if (suggestion) setUsername(suggestion);
+    });
+  }, [batchId, edited, startTransition]);
 
   if (state.ok && state.data) {
     return (
@@ -143,8 +141,8 @@ function CreateBody({
       <DialogHeader>
         <DialogTitle>Add student</DialogTitle>
         <DialogDescription>
-          A username and password are generated automatically and emailed if an
-          address is given.
+          A roll number and password are generated from the batch. Copy the
+          password before closing — it cannot be shown again.
         </DialogDescription>
       </DialogHeader>
 
@@ -190,9 +188,9 @@ function CreateBody({
         </Field>
 
         <Field
-          label="Username"
+          label="Roll number"
           htmlFor="username"
-          hint="Generated from the name. Change it if you prefer something else."
+          hint="The roll number, from the batch and its academic year. Change it if you prefer something else."
           error={state.fieldErrors?.username}
         >
           <Input
@@ -231,7 +229,7 @@ function CreateBody({
             label="Email"
             htmlFor="email"
             error={state.fieldErrors?.email}
-            hint="Credentials are emailed here."
+            hint="Optional."
           >
             <Input
               id="email"
